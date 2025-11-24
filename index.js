@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000; 
 
 // --- Configuración de Middleware ---
-// CRUCIAL: Habilita CORS para permitir llamadas desde tu aplicación de Google AI Studio.
+// Habilita CORS para permitir llamadas desde tu aplicación de Google AI Studio.
 app.use(cors()); 
 app.use(express.json());
 
@@ -23,11 +23,9 @@ app.get("/", (req, res) => {
 });
 
 // 2. 🧪 ENDPOINT: /ip
-// Obtiene la IP de salida (Egress IP) de Railway
-// ¡USAR SOLO UNA VEZ PARA OBTENER LA IP! Luego puedes eliminar este endpoint.
+// Obtiene la IP de salida (Egress IP) de Railway. (Temporal, puedes eliminarlo después de usarlo).
 app.get("/ip", async (req, res) => {
     try {
-        // Llama a un servicio que devuelve la IP de quien lo llama
         const response = await fetch("https://api.ipify.org?format=json");
         const data = await response.json();
         res.json({ 
@@ -54,7 +52,40 @@ app.get("/binance/time", async (req, res) => {
     }
 });
 
-// 4. ✔ ENDPOINT: /binance/account
+// 4. ✔ ENDPOINT: /binance/prices
+// Obtiene los precios de mercado (Tickers) para una lista de símbolos.
+// Uso: /binance/prices?symbols=["BTCUSDT","ETHUSDT"]
+app.get("/binance/prices", async (req, res) => {
+    try {
+        const symbolsParam = req.query.symbols;
+        
+        if (!symbolsParam) {
+            return res.status(400).json({ error: "Falta el parámetro 'symbols'. Debe ser un array JSON de símbolos (e.g., symbols=[\"BTCUSDT\",\"ETHUSDT\"])." });
+        }
+        
+        // La API de Binance espera un string JSON escapado
+        const symbols = JSON.parse(symbolsParam); 
+        
+        // Convertir el array de JavaScript a un string JSON escapado
+        const symbolsString = JSON.stringify(symbols);
+        
+        const url = `https://api.binance.com/api/v3/ticker/price?symbols=${symbolsString}`;
+
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`Error en la API de Binance: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: "Error obteniendo los precios de Binance", details: err.message });
+    }
+});
+
+
+// 5. ✔ ENDPOINT: /binance/account
 // Obtiene el estado de la cuenta (Privado) - Requiere BINANCE_API_KEY y BINANCE_SECRET_KEY
 app.get("/binance/account", async (req, res) => {
     try {

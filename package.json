@@ -1,16 +1,17 @@
 {
-  "name": "backend",
+  "name": "backend-binance",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Backend para proxy Binance",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2",
-    "crypto-js": "^4.2.0"
+    "express": "4.19.2",
+    "cors": "2.8.5",
+    "dotenv": "16.4.5",
+    "node-fetch": "3.3.2",
+    "crypto-js": "4.2.0"
   }
 }

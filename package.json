@@ -1,12 +1,21 @@
 {
   "name": "backend-binance",
   "version": "1.0.0",
-  "description": "Backend para proxy Binance",
+  "description": "Backend para proxy Binance y arbitraje de criptomonedas.",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
+  "keywords": [
+    "binance",
+    "arbitraje",
+    "crypto",
+    "node"
+  ],
+  "author": "Tu Nombre o Alias",
+  "license": "ISC",
   "dependencies": {
     "express": "4.19.2",
     "cors": "2.8.5",

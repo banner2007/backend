@@ -1,18 +1,13 @@
 {
-  "name": "backend-binance",
+  "name": "binance-backend",
   "version": "1.0.0",
-  "description": "Backend para conectar mi app con Binance",
-  "main": "index.js",
   "type": "module",
+  "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "node-fetch": "^3.3.2",
-    "cors": "^2.8.5"
-  },
-  "engines": {
-    "node": ">=18"
+    "node-fetch": "^3.3.2"
   }
 }

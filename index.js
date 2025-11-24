@@ -1,31 +1,28 @@
 import express from "express";
-import cors from "cors";
 import fetch from "node-fetch";
-import crypto from "crypto";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
 
+// Ruta de prueba
 app.get("/", (req, res) => {
   res.json({ msg: "Backend funcionando en Render 🚀" });
 });
 
-/*
- * ENDPOINT: /binance/time
- * Verifica conexión con Binance
- */
+// === Ruta Binance Time ===
 app.get("/binance/time", async (req, res) => {
   try {
     const response = await fetch("https://api.binance.com/api/v3/time");
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: "Error obteniendo hora de Binance" });
   }
 });
 
-/*
+// Puerto Render asigna dinámicamente
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor ejecutándose en puerto ${PORT}`));
+
  * ENDPOINT: /binance/account
  * Balance + info de la cuenta
  */
@@ -60,3 +57,4 @@ app.get("/binance/account", async (req, res) => {
  * PUERTO DEL SERVIDOR
  */
 app.listen(10000, () => console.log("Servidor funcionando en Render 🔥"));
+

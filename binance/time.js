@@ -1,8 +1,5 @@
-import express from "express";
-const router = express.Router();
-
-router.get("/", async (req, res) => {
-  res.json({ server_time: Date.now() });
-});
-
-export default router;
+export default async function handler(req, res) {
+  const response = await fetch("https://api.binance.com/api/v3/time");
+  const data = await response.json();
+  res.status(200).json(data);
+}

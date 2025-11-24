@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000; 
 
 // --- Configuración de Middleware ---
-// Habilita CORS para permitir llamadas desde tu aplicación de Google AI Studio.
+// Habilita CORS y permite leer el cuerpo de la solicitud en formato JSON (CRUCIAL para POST).
 app.use(cors()); 
 app.use(express.json());
 
@@ -22,8 +22,7 @@ app.get("/", (req, res) => {
     res.json({ msg: "Backend de Arbitraje de Criptomonedas funcionando. Desarrollado para Railway." }); 
 });
 
-// 2. 🧪 ENDPOINT: /ip
-// Obtiene la IP de salida (Egress IP) de Railway. (Temporal, puedes eliminarlo después de usarlo).
+// 2. 🧪 ENDPOINT: /ip (Temporal para obtener IP, puedes eliminarlo)
 app.get("/ip", async (req, res) => {
     try {
         const response = await fetch("https://api.ipify.org?format=json");
@@ -38,7 +37,6 @@ app.get("/ip", async (req, res) => {
 });
 
 // 3. ✔ ENDPOINT: /binance/time
-// Obtiene el servidor de tiempo de Binance (Público)
 app.get("/binance/time", async (req, res) => {
     try {
         const response = await fetch("https://api.binance.com/api/v3/time");
@@ -52,21 +50,16 @@ app.get("/binance/time", async (req, res) => {
     }
 });
 
-// 4. ✔ ENDPOINT: /binance/prices
-// Obtiene los precios de mercado (Tickers) para una lista de símbolos.
-// Uso: /binance/prices?symbols=["BTCUSDT","ETHUSDT"]
+// 4. ✔ ENDPOINT: /binance/prices (GET)
 app.get("/binance/prices", async (req, res) => {
     try {
         const symbolsParam = req.query.symbols;
         
         if (!symbolsParam) {
-            return res.status(400).json({ error: "Falta el parámetro 'symbols'. Debe ser un array JSON de símbolos (e.g., symbols=[\"BTCUSDT\",\"ETHUSDT\"])." });
+            return res.status(400).json({ error: "Falta el parámetro 'symbols'. Debe ser un array JSON de símbolos." });
         }
         
-        // La API de Binance espera un string JSON escapado
         const symbols = JSON.parse(symbolsParam); 
-        
-        // Convertir el array de JavaScript a un string JSON escapado
         const symbolsString = JSON.stringify(symbols);
         
         const url = `https://api.binance.com/api/v3/ticker/price?symbols=${symbolsString}`;
@@ -84,9 +77,63 @@ app.get("/binance/prices", async (req, res) => {
     }
 });
 
+// 5. ⚡ ENDPOINT: /binance/order (POST)
+// Coloca una nueva orden (compra/venta) en Binance. Requiere firma.
+app.post("/binance/order", async (req, res) => {
+    try {
+        const { symbol, side, quantity, type = 'MARKET' } = req.body; // type por defecto es MARKET
 
-// 5. ✔ ENDPOINT: /binance/account
-// Obtiene el estado de la cuenta (Privado) - Requiere BINANCE_API_KEY y BINANCE_SECRET_KEY
+        const apiKey = process.env.BINANCE_API_KEY; 
+        const secret = process.env.BINANCE_SECRET_KEY; 
+
+        if (!apiKey || !secret) {
+            return res.status(500).json({ error: "Faltan claves de API de Binance. Configure variables de entorno." });
+        }
+        
+        // Parámetros obligatorios
+        if (!symbol || !side || !quantity) {
+             return res.status(400).json({ error: "Faltan parámetros obligatorios: symbol, side (BUY/SELL) y quantity." });
+        }
+
+        const timestamp = Date.now();
+        // Construye el query string con los parámetros de la orden
+        const queryParams = `symbol=${symbol}&side=${side}&type=${type}&quantity=${quantity}&timestamp=${timestamp}`;
+
+        // Generación de la Firma HMAC SHA256
+        const signature = crypto
+            .createHmac("sha256", secret)
+            .update(queryParams)
+            .digest("hex");
+
+        const url = `https://api.binance.com/api/v3/order?${queryParams}&signature=${signature}`;
+
+        const response = await fetch(url, {
+            method: 'POST', // Es una solicitud POST
+            headers: { 
+                "X-MBX-APIKEY": apiKey,
+                'Content-Type': 'application/x-www-form-urlencoded' // Estándar para órdenes de Binance
+            },
+        });
+
+        const data = await response.json(); 
+
+        if (response.status !== 200) {
+             // Retorna el error específico de Binance (ej: "Filter failure: MIN_NOTIONAL")
+             return res.status(response.status).json({ 
+                 error: "Error de la API de Binance al ejecutar la orden", 
+                 binance_response: data 
+             });
+        }
+        
+        res.json(data); // Retorna la confirmación de la orden
+    } catch (err) {
+        res.status(500).json({ error: "Error interno al procesar la orden", details: err.message });
+    }
+});
+
+
+// 6. ✔ ENDPOINT: /binance/account (GET)
+// Obtiene el estado de la cuenta (Privado)
 app.get("/binance/account", async (req, res) => {
     try {
         const apiKey = process.env.BINANCE_API_KEY; 
@@ -99,7 +146,6 @@ app.get("/binance/account", async (req, res) => {
         const timestamp = Date.now();
         const query = `timestamp=${timestamp}`; 
 
-        // Generación de la Firma HMAC SHA256
         const signature = crypto
             .createHmac("sha256", secret)
             .update(query)

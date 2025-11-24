@@ -1,60 +1,68 @@
 import express from "express";
 import fetch from "node-fetch";
+import crypto from "crypto";
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Ruta de prueba
+// Mensaje principal
 app.get("/", (req, res) => {
   res.json({ msg: "Backend funcionando en Render 🚀" });
 });
 
-// === Ruta Binance Time ===
+//
+// ✔ ENDPOINT: /binance/time
+// Obtiene el servidor de tiempo de Binance
+//
 app.get("/binance/time", async (req, res) => {
   try {
     const response = await fetch("https://api.binance.com/api/v3/time");
     const data = await response.json();
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: "Error obteniendo hora de Binance" });
+  } catch (err) {
+    res.status(500).json({ error: "Error obteniendo el tiempo de Binance" });
   }
 });
 
-// Puerto Render asigna dinámicamente
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor ejecutándose en puerto ${PORT}`));
-
- * ENDPOINT: /binance/account
- * Balance + info de la cuenta
- */
+//
+// ✔ ENDPOINT: /binance/account
+// Requiere API KEY y SECRET configuradas en Render:
+// BINANCE_API_KEY
+// BINANCE_API_SECRET
+//
 app.get("/binance/account", async (req, res) => {
-  const apiKey = process.env.BINANCE_API_KEY;
-  const secret = process.env.BINANCE_SECRET;
-
-  if (!apiKey || !secret)
-    return res.status(400).json({ error: "Faltan claves en Render" });
-
-  const timestamp = Date.now();
-  const query = `timestamp=${timestamp}`;
-
-  const signature = crypto
-    .createHmac("sha256", secret)
-    .update(query)
-    .digest("hex");
-
   try {
-    const response = await fetch(
-      `https://api.binance.com/api/v3/account?${query}&signature=${signature}`,
-      { headers: { "X-MBX-APIKEY": apiKey } }
-    );
+    const apiKey = process.env.BINANCE_API_KEY;
+    const secret = process.env.BINANCE_API_SECRET;
+
+    if (!apiKey || !secret) {
+      return res.status(500).json({ error: "Faltan API keys en Render" });
+    }
+
+    const timestamp = Date.now();
+    const query = `timestamp=${timestamp}`;
+
+    const signature = crypto
+      .createHmac("sha256", secret)
+      .update(query)
+      .digest("hex");
+
+    const url = `https://api.binance.com/api/v3/account?${query}&signature=${signature}`;
+
+    const response = await fetch(url, {
+      headers: { "X-MBX-APIKEY": apiKey },
+    });
+
     const data = await response.json();
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Error llamando a Binance Account" });
   }
 });
 
-/*
- * PUERTO DEL SERVIDOR
- */
-app.listen(10000, () => console.log("Servidor funcionando en Render 🔥"));
-
+//
+// ✔ Iniciar servidor
+//
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en puerto ${PORT}`);
+});

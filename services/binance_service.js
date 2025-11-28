@@ -1,88 +1,60 @@
-// services/binance_service.js
-// CONFIGURACIÓN RESTABLECIDA: Se conecta a su backend de Railway para obtener los datos de Binance.
-// ADVERTENCIA: Puede experimentar errores de "Cold Start".
+// services/bitbex_service.js
+// Servicio de datos simulado para Bitbex.
 
 const RAILWAY_BASE_URL = "https://backend-production-228b.up.railway.app";
+// El endpoint simulado de Bitbex no existe, pero mantenemos la estructura.
+const BITBEX_SIMULATED_ENDPOINT = `${RAILWAY_BASE_URL}/bitbex/prices`; 
 
 /**
  * Pausa la ejecución por el tiempo especificado.
- * @param {number} ms - Milisegundos a esperar.
  */
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Implementa la lógica de reintento con backoff exponencial.
- * @param {Function} fn - Función asíncrona a ejecutar.
- * @param {number} maxRetries - Máximo número de reintentos.
- */
-async function retryOperation(fn, maxRetries = 5) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            return await fn();
-        } catch (error) {
-            if (i < maxRetries - 1) {
-                const delay = Math.pow(2, i) * 1000 + 1000;
-                console.warn(`Intento ${i + 1}/${maxRetries} fallido para Railway. Reintentando en ${delay.toFixed(0)}ms... (Posible Cold Start)`);
-                await sleep(delay);
-            } else {
-                // Después del último reintento fallido, lanzamos el error
-                throw error;
-            }
-        }
-    }
-}
-
-
-/**
- * Obtiene el precio de mercado (ask y bid) desde Binance a través del backend de Railway.
+ * Obtiene el precio simulado de Bitbex, dependiendo del precio obtenido de Binance (a través de Railway).
  * @param {string} symbol - El par de trading (e.g., 'BTCUSDT').
- * @returns {Promise<Object>} Un objeto con { exchange: 'Binance', ask: number, bid: number }.
+ * @returns {Promise<Object>} Un objeto con { exchange: 'Bitbex', ask: number, bid: number }.
  */
-export async function getBinancePrice(symbol) {
-    try {
-        // Llama al endpoint de Railway
-        const url = `${RAILWAY_BASE_URL}/binance/prices?symbols=[%22${symbol}%22]`;
-        
-        const response = await retryOperation(async () => {
-            const res = await fetch(url);
-            if (!res.ok) {
-                throw new Error(`Error HTTP de Railway: ${res.status}`);
-            }
-            const data = await res.json();
-            
-            if (data && data[symbol]) {
-                 return {
-                    exchange: 'Binance',
-                    ask: parseFloat(data[symbol].ask), 
-                    bid: parseFloat(data[symbol].bid) 
-                 };
-            }
-            throw new Error("Respuesta de Railway incompleta o en formato incorrecto.");
-        });
+export async function getBitbexPrice(symbol) {
+    // Importamos el servicio de Binance que ahora apunta a Railway.
+    const { getBinancePrice } = await import('./binance_service.js');
 
-        return response;
+    try {
+        console.log(`Simulando intento de conexión a Bitbex (depende de Railway)...`);
+        
+        // Simulamos un retraso para imitar el entorno de red.
+        await sleep(500 + Math.random() * 500); 
+
+        // Usamos el precio de Binance como base (obtenido de Railway)
+        const binancePrice = await getBinancePrice(symbol);
+        const basePrice = binancePrice.bid;
+        
+        // Simulación de Diferencia: +/- 0.05% para crear oportunidades de arbitraje inter-exchange.
+        const priceDifferenceFactor = 1 + (Math.random() * 0.001 - 0.0005); 
+        const simulatedPrice = basePrice * priceDifferenceFactor;
+
+        // Spread bid/ask en Bitbex (0.02% simulado)
+        const spread = 0.0002; 
+        const askPrice = simulatedPrice * (1 + spread); 
+        const bidPrice = simulatedPrice * (1 - spread); 
+
+        return {
+            exchange: 'Bitbex (Simulado - Railway)',
+            ask: askPrice,
+            bid: bidPrice 
+        };
 
     } catch (error) {
-        console.error(`ERROR en getBinancePrice para ${symbol}. Usando precios de emergencia (Simulación).`, error.message);
+        console.error(`ERROR en getBitbexPrice (Simulación de Railway fallida). Usando precios de emergencia.`, error.message);
         
-        // Fallback de emergencia si todo falla
+        // Fallback de emergencia
         const currentPriceEstimate = symbol.startsWith('BTC') ? 60000 : 3000; 
         const offset = Math.random() * 10 - 5; 
         const simulatedPrice = currentPriceEstimate + offset;
         return {
-            exchange: 'Binance (Fallback de Emergencia)',
-            ask: simulatedPrice * 1.0001, 
-            bid: simulatedPrice * 0.9999
+            exchange: 'Bitbex (Fallback)',
+            ask: simulatedPrice * 1.0003, 
+            bid: simulatedPrice * 0.9997
         };
     }
-}
-
-
-/**
- * Función para obtener el Saldo de USDT (Simulado).
- * @returns {Promise<number>} Saldo de USDT.
- */
-export async function getUSDTBalance() {
-    console.log("⚠️ Advertencia: La función getUSDTBalance está usando un saldo simulado (1000 USDT).");
-    return 1000.00; 
 }

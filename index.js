@@ -1,8 +1,15 @@
+// index.js
+
 import express from "express";
 import fetch from "node-fetch";
 import crypto from "crypto";
 import cors from "cors";
 import dotenv from "dotenv";
+
+// IMPORTANTE: Importamos el nuevo Motor de Arbitraje
+// Las funciones startIntraArbitrage y startInterArbitrage se usan para iniciar la lógica.
+// Asegúrate de que este archivo exista en ./services/arbitrage_engine.js
+import { startIntraArbitrage, startInterArbitrage } from './services/arbitrage_engine.js'; 
 
 // Cargar variables de entorno (para desarrollo local)
 dotenv.config(); 
@@ -11,7 +18,7 @@ const app = express();
 const PORT = process.env.PORT || 3000; 
 
 // --- Configuración de Middleware ---
-// Habilita CORS y permite leer el cuerpo de la solicitud en formato JSON (CRUCIAL para POST).
+// Habilita CORS y permite leer el cuerpo de la solicitud en formato JSON.
 app.use(cors()); 
 app.use(express.json());
 
@@ -19,7 +26,10 @@ app.use(express.json());
 
 // 1. Mensaje Principal (Ruta raíz)
 app.get("/", (req, res) => {
-    res.json({ msg: "Backend de Arbitraje de Criptomonedas funcionando. Desarrollado para Railway." }); 
+    res.json({ 
+        msg: "Backend de Arbitraje de Criptomonedas funcionando. Desarrollado para Railway.",
+        mode: `Motor activo: ${process.env.ARBITRAGE_MODE || 'Solo Web/Rutas'}`
+    }); 
 });
 
 // 2. 🧪 ENDPOINT: /ip (Temporal para obtener IP, puedes eliminarlo)
@@ -174,7 +184,24 @@ app.get("/binance/account", async (req, res) => {
     }
 });
 
-// --- Iniciar servidor ---
+
+// --- Iniciar servidor y Motor de Arbitraje ---
+// Esta sección es la que determina si se inicia el motor de arbitraje o solo el servidor web.
 app.listen(PORT, () => {
-    console.log(`Servidor de Binance corriendo en puerto ${PORT}`);
+    console.log(`Servidor Express corriendo en puerto ${PORT}`);
+
+    // Leer la variable de entorno para saber qué motor iniciar
+    const ARBITRAGE_MODE = process.env.ARBITRAGE_MODE;
+
+    if (ARBITRAGE_MODE === 'INTER_EXCHANGE') {
+        // Ejecuta la lógica Binance vs Bitbex
+        startInterArbitrage();
+        console.log("Motor de Arbitraje: MODO INTER-EXCHANGE (Binance vs Bitbex) iniciado.");
+    } else if (ARBITRAGE_MODE === 'INTRA_EXCHANGE') {
+        // Ejecuta tu lógica actual de arbitraje dentro de Binance
+        startIntraArbitrage();
+        console.log("Motor de Arbitraje: MODO INTRA-EXCHANGE (Solo Binance) iniciado.");
+    } else {
+        console.warn("Advertencia: Motor de Arbitraje no iniciado. La variable ARBITRAGE_MODE no está definida. Solo se ejecutan las rutas web.");
+    }
 });

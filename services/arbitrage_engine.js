@@ -146,7 +146,7 @@ async function engineLoop(availableUSDT) {
 export async function startEngine() {
     console.log("Iniciando motor de arbitraje...");
     
-    // Obtener Saldo Inicial (Simulado)
+    // Obtener Saldo Inicial (Ahora intenta usar el backend de Railway)
     const availableUSDT = await getUSDTBalance();
     console.log(`Saldo de USDT disponible (simulado/real): ${availableUSDT.toFixed(2)} USDT`);
     

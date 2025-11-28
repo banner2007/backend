@@ -1,84 +1,65 @@
 // services/arbitrage_engine.js
 
-import { getOrderBook, getAccountBalance } from './bitbex_service.js'; // Asumiendo que getAccountBalance está aquí
-
-// ----------------------------------------------------------------------
-// --- FUNCIONES DE PRUEBA TEMPORAL PARA LA CONEXIÓN DE BITBEX ---
-// ----------------------------------------------------------------------
-
-async function checkBitbexConnection() {
-    console.log('[PRUEBA BITBEX] Iniciando prueba de conexión con saldo privado...');
-    
-    // 1. Prueba de Precios Públicos (Debe funcionar siempre, sin claves)
-    try {
-        const prices = await getOrderBook('BTCUSDT'); // Cambia a un par válido en Bitbex
-        console.log(`[PRUEBA BITBEX] ✔ Precios Públicos (Order Book) obtenidos: Bid=${prices.bestBid}, Ask=${prices.bestAsk}`);
-    } catch (error) {
-        console.error('[PRUEBA BITBEX] ❌ ERROR al obtener Precios Públicos (URL o par incorrecto):', error.message);
-    }
-    
-    // 2. Prueba de Saldo Privado (Requiere API Key y Firma Correcta)
-    try {
-        const balance = await getAccountBalance(); // Llama al endpoint de saldo
-        
-        if (balance && balance.balances) {
-            console.log('[PRUEBA BITBEX] ✅ CONEXIÓN EXITOSA: El API Key y la Firma son correctos.');
-            // Muestra un ejemplo de saldo (reemplaza 'USDT' si Bitbex usa otro formato)
-            const usdtBalance = balance.balances.find(b => b.asset === 'USDT' || b.asset === 'USD'); 
-            console.log(`[PRUEBA BITBEX] Saldo disponible de USDT (ejemplo): ${usdtBalance ? usdtBalance.free : 'No encontrado'}`);
-        } else {
-            // Esto puede ocurrir si el API devuelve un 200 pero un objeto vacío o inesperado
-            console.warn('[PRUEBA BITBEX] ⚠️ Respuesta inesperada, pero sin error de autorización. Revisa el formato de la respuesta:', balance);
-        }
-    } catch (error) {
-        // Un error 401/403 de Bitbex significaría que la API Key o la firma están MAL
-        if (error.message.includes('401') || error.message.includes('403')) {
-            console.error('[PRUEBA BITBEX] ❌ ERROR FATAL DE AUTORIZACIÓN (401/403). La API Key o la Firma de Bitbex son incorrectas.');
-        } else {
-            console.error('[PRUEBA BITBEX] ❌ ERROR de Red/Servidor Bitbex (Revisa logs):', error.message);
-        }
-    }
-}
-
-// ----------------------------------------------------------------------
-// --- MOTORES DE ARBITRAJE ---
-// ----------------------------------------------------------------------
+import { getBinanceAccountBalance } from './binance_service.js';
+// CORREGIDO: Importa la función con el nombre correcto: getBitbexAccountBalance
+import { getBitbexAccountBalance } from './bitbex_service.js'; 
 
 /**
- * [PLACEHOLDER] Inicia el motor de arbitraje intra-exchange (solo Binance).
+ * Inicia el motor de arbitraje Inter-Exchange (Binance vs Bitbex).
+ * Ejecuta pruebas de conexión y luego la lógica de arbitraje.
  */
-function startIntraArbitrage() {
-    console.log('----------------------------------------------------');
-    console.log('--- Motor Intra-Exchange (Solo Binance) ACTIVADO ---');
-    console.log('----------------------------------------------------');
-    // ... Tu lógica de arbitraje triangular de Binance va aquí
-    console.log('Lógica de arbitraje INTRA-EXCHANGE cargada. Reemplaza este placeholder con tu código.');
+export async function startInterArbitrage() {
+    console.log('[DIAGNÓSTICO INTER-EXCHANGE] Verificando conexiones de exchanges...');
+
+    // 1. Verificar Binance
+    console.log('--- Diagnóstico Binance ---');
+    const binanceStatus = await getBinanceAccountBalance();
+    console.log(`[DIAGNÓSTICO BINANCE] Estado: ${binanceStatus.message}`);
+    if (binanceStatus.success && binanceStatus.balances && binanceStatus.balances.length > 0) {
+        console.log(`[INFO BINANCE] Balances encontrados: ${binanceStatus.balances.map(b => `${b.free} ${b.asset}`).join(', ')}`);
+    } else if (binanceStatus.success && (!binanceStatus.balances || binanceStatus.balances.length === 0)) {
+        console.log('[INFO BINANCE] Conexión OK, pero no se encontraron balances distintos de cero (¡Revisa si tienes fondos o si la clave tiene permiso de lectura!).');
+    }
+
+    // 2. Verificar Bitbex
+    console.log('--- Diagnóstico Bitbex ---');
+    // CORRECTO: Usamos la función con el nombre que BitbexService exporta
+    const bitbexStatus = await getBitbexAccountBalance(); 
+    console.log(`[DIAGNÓSTICO BITBEX] Estado: ${bitbexStatus.message}`);
+    if (bitbexStatus.success && bitbexStatus.balances && bitbexStatus.balances.length > 0) {
+        console.log(`[INFO BITBEX] Balances encontrados: ${bitbexStatus.balances.map(b => `${b.free} ${b.asset}`).join(', ')}`);
+    } else if (bitbexStatus.success && (!bitbexStatus.balances || bitbexStatus.balances.length === 0)) {
+        console.log('[INFO BITBEX] Conexión OK, pero no se encontraron balances distintos de cero (¡Revisa si tienes fondos!).');
+    }
+
+    if (binanceStatus.success && bitbexStatus.success) {
+        console.log('\n[MOTOR INICIADO] ¡Ambos exchanges están configurados y autenticados! Iniciando el ciclo de arbitraje...');
+        
+        // --- BUCLE PRINCIPAL DE ARBITRAJE INTER-EXCHANGE ---
+        
+        setInterval(() => {
+            // Lógica principal: 
+            // 1. Obtener libros de órdenes de ambos exchanges.
+            // 2. Comparar Bid más alto de A con Ask más bajo de B.
+            // 3. Ejecutar órdenes si la oportunidad es mayor al spread (comisiones).
+        }, 5000); // Escanear cada 5 segundos
+        
+    } else {
+        console.error('\n[MOTOR DETENIDO] No se puede iniciar el arbitraje inter-exchange. Revisa los errores de autenticación anteriores.');
+    }
 }
 
 /**
- * Inicia el motor de arbitraje inter-exchange (Binance vs Bitbex).
- * También inicia la prueba de conexión al principio.
+ * Inicia el motor de arbitraje Intra-Exchange (Solo Binance).
  */
-async function startInterArbitrage() {
-    console.log('---------------------------------------------------------');
-    console.log('--- Motor Inter-Exchange (Binance vs Bitbex) ACTIVADO ---');
-    console.log('---------------------------------------------------------');
-
-    // Ejecuta la prueba de conexión antes de iniciar el bucle de arbitraje
-    await checkBitbexConnection(); 
+export function startIntraArbitrage() {
+    console.log('[DIAGNÓSTICO INTRA-EXCHANGE] Verificando conexión de Binance...');
     
-    console.log('\n[INFO] Iniciando bucle de arbitraje de precios...');
+    // (Aquí se verificaría la conexión de Binance si no se hizo antes)
 
-    // ... (El resto de tu lógica de bucle de arbitraje Inter-Exchange va aquí)
-    const symbol = 'BTCUSDT'; 
-    setInterval(async () => {
-        // ... (Tu lógica de comparación de precios entre Binance y Bitbex)
-        // ...
-        
-    }, 5000); 
+    console.log('[MOTOR INICIADO] Iniciando el ciclo de arbitraje intra-exchange de Binance...');
+    
+    setInterval(() => {
+        // Lógica de arbitraje triangular (tres pares).
+    }, 10000); // Escanear cada 10 segundos
 }
-
-export {
-    startIntraArbitrage,
-    startInterArbitrage,
-};

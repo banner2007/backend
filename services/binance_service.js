@@ -1,6 +1,6 @@
 // services/binance_service.js
-// ESTE CÓDIGO ESTÁ CONFIGURADO PARA CONECTARSE A SU BACKEND DE RAILWAY
-// ADVERTENCIA: Puede experimentar errores de "Cold Start" o "Failed to fetch" debido a la latencia del backend.
+// CONFIGURACIÓN RESTABLECIDA: Se conecta a su backend de Railway para obtener los datos de Binance.
+// ADVERTENCIA: Puede experimentar errores de "Cold Start".
 
 const RAILWAY_BASE_URL = "https://backend-production-228b.up.railway.app";
 
@@ -40,6 +40,7 @@ async function retryOperation(fn, maxRetries = 5) {
  */
 export async function getBinancePrice(symbol) {
     try {
+        // Llama al endpoint de Railway
         const url = `${RAILWAY_BASE_URL}/binance/prices?symbols=[%22${symbol}%22]`;
         
         const response = await retryOperation(async () => {
@@ -79,7 +80,6 @@ export async function getBinancePrice(symbol) {
 
 /**
  * Función para obtener el Saldo de USDT (Simulado).
- * NOTA: El saldo real requeriría el uso de las claves API privadas en el backend de Railway.
  * @returns {Promise<number>} Saldo de USDT.
  */
 export async function getUSDTBalance() {

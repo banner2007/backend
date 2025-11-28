@@ -1,99 +1,97 @@
 // arbitrage_engine.js
-// Módulo central para la lógica de arbitraje.
+// Contiene la lógica para conectarse a Binance, obtener datos y detectar oportunidades.
 
-// Importa las funciones específicas de cada exchange.
-// Nota: 'getBinancePrice' y 'getBitbexPrice' son exportaciones con nombre.
-import { getBinancePrice } from './services/binance_service.js';
-import { getBitbexPrice } from './services/bitbex_service.js';
+import Binance from 'node-binance-api';
 
-// Define el par de trading que se va a monitorear
-const TRADING_PAIR = 'BTCUSDT';
-// Define el umbral de beneficio mínimo para considerar una oportunidad (e.g., 0.5%)
-const PROFIT_THRESHOLD = 0.005; 
-// Intervalo de tiempo en milisegundos para ejecutar el chequeo (e.g., cada 5 segundos)
-const CHECK_INTERVAL_MS = 5000; 
+// --- CONFIGURACIÓN CRÍTICA ---
+// ¡ADVERTENCIA! Reemplaza estos con tus credenciales reales de Binance.
+// Mantenerlas en una variable de entorno es la práctica más segura en producción.
+const BINANCE_API_KEY = "TU_CLAVE_API_AQUI"; 
+const BINANCE_API_SECRET = "TU_SECRETO_API_AQUI";
+// -----------------------------
+
+const binance = new Binance().options({
+    APIKEY: BINANCE_API_KEY,
+    APISECRET: BINANCE_API_SECRET
+});
+
+// Símbolos que queremos monitorear para arbitraje triangular (ejemplo: BTC/USDT, ETH/BTC, ETH/USDT)
+const symbols = ['ETHBTC', 'BTCUSDT', 'ETHUSDT']; 
+const CHECK_INTERVAL_MS = 5000; // Frecuencia de chequeo (cada 5 segundos)
 
 /**
- * Función principal que comprueba los precios y detecta oportunidades de arbitraje.
+ * Función para simular la detección de arbitraje triangular.
+ * El arbitraje triangular implica 3 pares de divisas: A/B, B/C, y A/C.
+ * Ejemplo: Comprar BTC con USDT, Comprar ETH con BTC, y Vender ETH por USDT.
  */
-async function checkArbitrageOpportunities() {
-    console.log(`[${new Date().toLocaleTimeString()}] Buscando oportunidades para ${TRADING_PAIR}...`);
+async function checkArbitrageOpportunity() {
+    console.log(`[${new Date().toLocaleTimeString()}] Buscando oportunidades de arbitraje...`);
 
     try {
-        // 1. Obtener los precios de ambos exchanges en paralelo para mayor eficiencia.
-        const [binanceData, bitbexData] = await Promise.all([
-            getBinancePrice(TRADING_PAIR),
-            getBitbexPrice(TRADING_PAIR)
-        ]);
+        // 1. Obtener todos los tickers de precios de un solo golpe.
+        // Esto reduce las llamadas a la API en comparación con pedir cada par individualmente.
+        const tickers = await binance.prices();
 
-        // 2. Extraer los datos relevantes (Ask y Bid)
-        const binanceAsk = binanceData.ask; // Precio de compra en Binance (lo que pagas)
-        const binanceBid = binanceData.bid; // Precio de venta en Binance (lo que recibes)
+        // 2. Definir los tres pares para el triángulo BTC-ETH-USDT
+        // Ruta de la operación simulada: USDT -> BTC -> ETH -> USDT
+        const pair1 = 'BTCUSDT'; // Primer paso
+        const pair2 = 'ETHBTC';  // Segundo paso
+        const pair3 = 'ETHUSDT'; // Tercer paso (cierre del ciclo)
         
-        const bitbexAsk = bitbexData.ask; // Precio de compra en Bitbex (lo que pagas)
-        const bitbexBid = bitbexData.bid; // Precio de venta en Bitbex (lo que recibes)
+        // Obtenemos los precios más recientes.
+        const price1 = parseFloat(tickers[pair1]); 
+        const price2 = parseFloat(tickers[pair2]);
+        const price3 = parseFloat(tickers[pair3]);
 
-        // Mostrar los precios actuales en la consola para referencia
-        console.log(`  > Binance: Ask=${binanceAsk.toFixed(2)}, Bid=${binanceBid.toFixed(2)}`);
-        console.log(`  > Bitbex:  Ask=${bitbexAsk.toFixed(2)}, Bid=${bitbexBid.toFixed(2)}`);
-
-        // 3. Evaluar las dos posibles rutas de arbitraje:
-
-        // RUTA 1: Comprar barato en Binance y vender caro en Bitbex
-        // Vender en Bitbex (Bid) > Comprar en Binance (Ask)
-        const profitRoute1 = bitbexBid - binanceAsk;
-        const percentageRoute1 = profitRoute1 / binanceAsk;
-
-        // RUTA 2: Comprar barato en Bitbex y vender caro en Binance
-        // Vender en Binance (Bid) > Comprar en Bitbex (Ask)
-        const profitRoute2 = binanceBid - bitbexAsk;
-        const percentageRoute2 = profitRoute2 / bitbexAsk;
-
-        // 4. Reportar la mejor oportunidad
-        let bestOpportunity = { profit: 0, percentage: 0, route: null };
-
-        // Comparar RUTA 1
-        if (percentageRoute1 > bestOpportunity.percentage) {
-            bestOpportunity = {
-                profit: profitRoute1,
-                percentage: percentageRoute1,
-                route: `Comprar en Binance a ${binanceAsk.toFixed(2)} y Vender en Bitbex a ${bitbexBid.toFixed(2)}`
-            };
+        if (isNaN(price1) || isNaN(price2) || isNaN(price3)) {
+            console.warn("Advertencia: No se pudieron obtener todos los precios para el triángulo BTC-ETH-USDT.");
+            return;
         }
 
-        // Comparar RUTA 2
-        if (percentageRoute2 > bestOpportunity.percentage) {
-            bestOpportunity = {
-                profit: profitRoute2,
-                percentage: percentage2,
-                route: `Comprar en Bitbex a ${bitbexAsk.toFixed(2)} y Vender en Binance a ${binanceBid.toFixed(2)}`
-            };
-        }
+        // 3. Simular la operación:
+        // Comenzamos con 1 USDT.
+        // Formula: (1 / Precio A/B) * (1 / Precio B/C) * (Precio A/C)
+        // Formula para este ejemplo: (1 / BTCUSDT) * (1 / ETHBTC) * (ETHUSDT)
 
-        // 5. Mostrar el resultado final
-        if (bestOpportunity.percentage >= PROFIT_THRESHOLD) {
-            // ¡Oportunidad detectada!
-            console.log("=================================================");
-            console.log("¡OPORTUNIDAD DE ARBITRAJE DETECTADA!");
-            console.log(`Ruta: ${bestOpportunity.route}`);
-            console.log(`Beneficio Bruto: $${bestOpportunity.profit.toFixed(2)} (${(bestOpportunity.percentage * 100).toFixed(4)}%)`);
-            console.log("=================================================");
+        const finalUSDT = (1 / price1) * (1 / price2) * price3;
+        const profitLoss = finalUSDT - 1; // Beneficio o pérdida por 1 USDT invertido.
+
+        console.log(`\n--- Cálculo de Arbitraje (BTC/ETH/USDT) ---`);
+        console.log(`1. BTCUSDT Price: ${price1}`);
+        console.log(`2. ETHBTC Price:  ${price2}`);
+        console.log(`3. ETHUSDT Price: ${price3}`);
+        console.log(`Resultado final (por 1 USDT): ${finalUSDT.toFixed(8)} USDT`);
+        console.log(`Beneficio/Pérdida Neto: ${ (profitLoss * 100).toFixed(4) }%`);
+        
+        const MIN_PROFIT = 0.0005; // 0.05% de beneficio mínimo, para cubrir comisiones
+
+        if (profitLoss > MIN_PROFIT) {
+            console.log("-----------------------------------------");
+            console.log(`🤑 ¡OPORTUNIDAD DE ARBITRAJE ENCONTRADA! 🤑`);
+            console.log(`Potencial de Ganancia: +${(profitLoss * 100).toFixed(4)}%`);
+            // Aquí iría la lógica real para ejecutar las órdenes de Binance:
+            // binance.marketSell('BTCUSDT', amount)
+            // binance.marketSell('ETHBTC', amount)
+            // binance.marketBuy('ETHUSDT', amount)
+            console.log("-----------------------------------------");
         } else {
-            console.log(`> No se encontraron oportunidades que superen el umbral de ${(PROFIT_THRESHOLD * 100).toFixed(2)}%.`);
-            console.log(`> Mejor spread: ${(bestOpportunity.percentage * 100).toFixed(4)}%`);
+            console.log(`Sin oportunidad de arbitraje rentable (necesita >${(MIN_PROFIT * 100)}%)`);
         }
 
     } catch (error) {
-        console.error("Error al obtener o procesar los precios:", error.message);
+        // En caso de problemas de conexión o errores de la API.
+        console.error("Error en la detección de arbitraje:", error.message);
     }
 }
 
 /**
- * Inicia el bucle de arbitraje.
+ * Inicia el bucle principal del motor de arbitraje.
+ * Esta función es exportada para ser utilizada por index.js.
  */
 export function startEngine() {
-    console.log(`Motor de arbitraje iniciado. Chequeando cada ${CHECK_INTERVAL_MS / 1000} segundos...`);
-    // Ejecuta la función inmediatamente y luego la repite en el intervalo definido
-    checkArbitrageOpportunities();
-    setInterval(checkArbitrageOpportunities, CHECK_INTERVAL_MS);
+    console.log("Motor de arbitraje iniciado. Chequeando cada 5 segundos...");
+    // Ejecuta la función por primera vez inmediatamente.
+    checkArbitrageOpportunity(); 
+    // Luego, establece un intervalo para ejecutarla periódicamente.
+    setInterval(checkArbitrageOpportunity, CHECK_INTERVAL_MS);
 }

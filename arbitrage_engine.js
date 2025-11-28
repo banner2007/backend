@@ -82,4 +82,77 @@ async function checkInterExchangeArbitrage() {
         if (error.message && error.message.includes("400")) {
              console.error("Error: Revise que el símbolo sea válido o si la API de Bitbex está caída.");
         } else {
-             console.error("Error en la detección
+             console.error("Error en la detección de arbitraje Inter-Intercambio:", error.message);
+        }
+    }
+}
+
+
+/**
+ * Función para simular la detección de arbitraje triangular (solo en Binance).
+ * Aplica comisiones para mayor realismo.
+ */
+async function checkTriangularArbitrage() {
+    console.log(`\n[${new Date().toLocaleTimeString()}] Buscando Arbitraje Triangular (BTC/ETH/USDT)...`);
+    
+    try {
+        const tickers = await binance.prices();
+        const pair1 = 'BTCUSDT'; 
+        const pair2 = 'ETHBTC';  
+        const pair3 = 'ETHUSDT'; 
+        
+        const price1 = parseFloat(tickers[pair1]); // P_btc/usdt
+        const price2 = parseFloat(tickers[pair2]); // P_eth/btc
+        const price3 = parseFloat(tickers[pair3]); // P_eth/usdt
+
+        if (isNaN(price1) || isNaN(price2) || isNaN(price3)) {
+            return;
+        }
+
+        // --- CÁLCULO TRIANGULAR CON COMISIONES ---
+        // Simulación: Inicias con 1 USDT
+        
+        // Trade 1: USDT -> BTC (se resta la comisión al resultado)
+        const amountBTC = (1 / price1) * (1 - TRADING_FEE_RATE);
+        
+        // Trade 2: BTC -> ETH (se resta la comisión al resultado)
+        const amountETH = (amountBTC / price2) * (1 - TRADING_FEE_RATE);
+        
+        // Trade 3: ETH -> USDT (se resta la comisión al resultado)
+        const finalUSDT = amountETH * price3 * (1 - TRADING_FEE_RATE);
+        
+        const netProfit = finalUSDT - 1; 
+
+        console.log(`--- Cálculo Triangular ---`);
+        console.log(`Resultado final (por 1 USDT): ${finalUSDT.toFixed(8)} USDT`);
+        console.log(`Beneficio Neto: ${ (netProfit * 100).toFixed(4) }% (incluye 3 comisiones del ${TRADING_FEE_RATE * 100}%)`);
+        
+        if (netProfit > MIN_PROFIT_TRIANGULAR) {
+            console.log("-----------------------------------------");
+            console.log(`🤑 ¡OPORTUNIDAD TRIANGULAR ENCONTRADA! 🤑`);
+            console.log(`Potencial de Ganancia NETA: +${(netProfit * 100).toFixed(4)}%`);
+            console.log("-----------------------------------------");
+        } else {
+            console.log(`Sin oportunidad rentable Triangular (necesita >${(MIN_PROFIT_TRIANGULAR * 100)}% después de comisiones)`);
+        }
+    } catch (error) {
+        console.error("Error en la detección de arbitraje Triangular:", error.message);
+    }
+}
+
+/**
+ * Función principal que chequea todas las oportunidades.
+ */
+async function checkAllOpportunities() {
+    await checkInterExchangeArbitrage(); 
+    await checkTriangularArbitrage();    
+}
+
+
+export function startEngine() {
+    console.log(`Motor de arbitraje iniciado. Chequeando cada ${CHECK_INTERVAL_MS/1000} segundos...`);
+    
+    // Inicia el chequeo y luego lo repite.
+    checkAllOpportunities(); 
+    setInterval(checkAllOpportunities, CHECK_INTERVAL_MS);
+}

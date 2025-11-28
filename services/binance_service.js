@@ -1,6 +1,7 @@
 // services/binance_service.js
 // CONFIGURACIÓN RESTABLECIDA: Se conecta a su backend de Railway para obtener los datos de Binance.
-// ADVERTENCIA: Puede experimentar errores de "Cold Start".
+// ADVERTENCIA: Puede experimentar errores de "Cold Start" para precios, y el endpoint de cuenta
+// debe existir en su backend de Railway.
 
 const RAILWAY_BASE_URL = "https://backend-production-228b.up.railway.app";
 
@@ -22,7 +23,7 @@ async function retryOperation(fn, maxRetries = 5) {
         } catch (error) {
             if (i < maxRetries - 1) {
                 const delay = Math.pow(2, i) * 1000 + 1000;
-                console.warn(`Intento ${i + 1}/${maxRetries} fallido para Railway. Reintentando en ${delay.toFixed(0)}ms... (Posible Cold Start)`);
+                console.warn(`Intento ${i + 1}/${maxRetries} fallido para Railway. Reintentando en ${delay.toFixed(0)}ms... (Posible Cold Start o error de ruta)`);
                 await sleep(delay);
             } else {
                 // Después del último reintento fallido, lanzamos el error
@@ -40,7 +41,7 @@ async function retryOperation(fn, maxRetries = 5) {
  */
 export async function getBinancePrice(symbol) {
     try {
-        // Llama al endpoint de Railway
+        // Llama al endpoint de precios de Railway
         const url = `${RAILWAY_BASE_URL}/binance/prices?symbols=[%22${symbol}%22]`;
         
         const response = await retryOperation(async () => {
@@ -57,15 +58,14 @@ export async function getBinancePrice(symbol) {
                     bid: parseFloat(data[symbol].bid) 
                  };
             }
-            throw new Error("Respuesta de Railway incompleta o en formato incorrecto.");
-        });
+            throw new Error("Respuesta de precios de Railway incompleta o en formato incorrecto.");
+        }, 5); // 5 reintentos para precios
 
         return response;
 
     } catch (error) {
         console.error(`ERROR en getBinancePrice para ${symbol}. Usando precios de emergencia (Simulación).`, error.message);
         
-        // Fallback de emergencia si todo falla
         const currentPriceEstimate = symbol.startsWith('BTC') ? 60000 : 3000; 
         const offset = Math.random() * 10 - 5; 
         const simulatedPrice = currentPriceEstimate + offset;
@@ -79,10 +79,45 @@ export async function getBinancePrice(symbol) {
 
 
 /**
- * Función para obtener el Saldo de USDT (Simulado).
+ * Obtiene el Saldo de USDT desde el backend de Railway.
+ * NOTA: Esta función requiere que la ruta /binance/account esté configurada en su backend de Railway.
  * @returns {Promise<number>} Saldo de USDT.
  */
 export async function getUSDTBalance() {
-    console.log("⚠️ Advertencia: La función getUSDTBalance está usando un saldo simulado (1000 USDT).");
-    return 1000.00; 
+    try {
+        const url = `${RAILWAY_BASE_URL}/binance/account`;
+        console.log("Intentando conectar a Railway para obtener el saldo de la cuenta...");
+
+        const realBalance = await retryOperation(async () => {
+            const res = await fetch(url);
+            
+            if (res.status === 404) {
+                 // Error específico que usted mencionó, la ruta no existe en el backend
+                 throw new Error(`Error 404: La ruta /binance/account no existe en su backend de Railway. Verifique la implementación del servidor.`);
+            }
+            if (!res.ok) {
+                throw new Error(`Error HTTP de Railway al obtener saldo: ${res.status}`);
+            }
+            const data = await res.json();
+            
+            // Asumiendo que el JSON tiene una estructura con balances, buscamos USDT
+            if (data && Array.isArray(data.balances)) {
+                const usdtBalance = data.balances.find(b => b.asset === 'USDT');
+                if (usdtBalance) {
+                    const freeBalance = parseFloat(usdtBalance.free);
+                    console.log(`✅ Saldo USDT REAL obtenido de Railway: ${freeBalance.toFixed(2)} USDT`);
+                    return freeBalance;
+                }
+            }
+            // Si la conexión es exitosa pero no se encuentra USDT, volvemos a la simulación.
+            console.warn("Respuesta de cuenta incompleta. Usando saldo simulado.");
+            return 1000.00; 
+        }, 3); // 3 reintentos para el saldo
+
+        return realBalance;
+
+    } catch (error) {
+        console.error(`ERROR CRÍTICO: No se pudo obtener el saldo de USDT del backend. Usando saldo simulado. Mensaje de error:`, error.message);
+        return 1000.00; // Saldo simulado de fallback
+    }
 }

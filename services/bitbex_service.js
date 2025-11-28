@@ -20,7 +20,7 @@ export async function getBitbexPrice(symbol) {
     const { getBinancePrice } = await import('./binance_service.js');
 
     try {
-        console.log(`Simulando intento de conexión a Bitbex (depende de Railway)...`);
+        console.log(`Simulando intento de conexión a Bitbex (depende de Railway para base)...`);
         
         // Simulamos un retraso para imitar el entorno de red.
         await sleep(500 + Math.random() * 500); 

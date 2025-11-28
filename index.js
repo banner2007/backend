@@ -1,85 +1,49 @@
 // index.js
+import express from 'express'; // <--- CORRECCIÓN IMPORTANTE: Importación de Express
+import cors from 'cors';
+import { startArbitrageEngine } from './services/arbitrage_engine.js';
+// ... más importaciones si tienes
 
-// Usamos rutas relativas que inician con ./ y aseguran minúsculas en 'services'
-import { getOrderBook, placeOrder } from './services/binance_service.js'; 
-import { startIntraArbitrage, startInterArbitrage } from './services/arbitrage_engine.js';
+// La forma correcta de importar Express en un módulo ES
+// const express = require('express'); // <-- Esto NO funciona con el modo "type": "module"
 
-// ----------------------------------------------------------------------
-// --- Configuración de Variables y Modos de Ejecución ---
-// ----------------------------------------------------------------------
+const PORT = process.env.PORT || 8080;
+const ARBITRAGE_MODE = process.env.ARBITRAGE_MODE || 'WEB_ONLY';
 
-const ARBITRAGE_MODE = process.env.ARBITRAGE_MODE || 'WEB_ONLY'; 
-const PORT = process.env.PORT || 3000;
-const BINANCE_KEY = process.env.BINANCE_API_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA';
-const BINANCE_SECRET = process.env.BINANCE_SECRET_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA';
-const BITBEX_KEY = process.env.BITBEX_API_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA';
-const BITBEX_SECRET = process.env.BITBEX_SECRET_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'; 
-
+// --- INICIO DE CONFIGURACIÓN DEL SERVICIO ---
 console.log('--- INICIO DE CONFIGURACIÓN DEL SERVICIO ---');
 console.log(`[INFO] Puerto de escucha: ${PORT}`);
 console.log(`[INFO] Modo de Arbitraje Solicitado: ${ARBITRAGE_MODE}`);
-console.log(`[INFO] Estado de BINANCE_API_KEY: ${BINANCE_KEY}`);
-console.log(`[INFO] Estado de BINANCE_SECRET_KEY: ${BINANCE_SECRET}`);
-console.log(`[INFO] Estado de BITBEX_API_KEY: ${BITBEX_KEY}`);
-console.log(`[INFO] Estado de BITBEX_SECRET_KEY: ${BITBEX_SECRET}`);
+console.log(`[INFO] Estado de BINANCE_API_KEY: ${process.env.BINANCE_API_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'}`);
+console.log(`[INFO] Estado de BINANCE_SECRET_KEY: ${process.env.BINANCE_SECRET_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'}`);
+console.log(`[INFO] Estado de BITBEX_API_KEY: ${process.env.BITBEX_API_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'}`);
+console.log(`[INFO] Estado de BITBEX_SECRET_KEY: ${process.env.BITBEX_SECRET_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'}`);
 console.log('--------------------------------------------');
 
+// Inicializa el motor de arbitraje (diagnóstico)
+startArbitrageEngine();
 
-// ----------------------------------------------------------------------
-// --- Lógica de Inicio (Bifurcación por Modo) ---
-// ----------------------------------------------------------------------
+// --- CONFIGURACIÓN DEL SERVIDOR WEB (EXPRESS) ---
 
-if (ARBITRAGE_MODE === 'INTER_EXCHANGE') {
-    
-    console.log('Motor de Arbitraje: MODO INTER-EXCHANGE (Binance vs Bitbex) iniciado.');
-    startInterArbitrage(); // Esto ejecuta la prueba de conexión a Bitbex
-    
-    // NOTA: En este modo, el servidor Express NO es necesario si solo es el motor. 
-    // Lo desactivamos para ahorrar recursos si el modo es INTER_EXCHANGE.
+// Línea 66 que estaba causando el error:
+const app = express(); 
 
-} else if (ARBITRAGE_MODE === 'INTRA_EXCHANGE') {
-    
-    console.log('Motor de Arbitraje: MODO INTRA-EXCHANGE (Solo Binance) iniciado.');
-    startIntraArbitrage();
+app.use(cors());
+app.use(express.json());
 
-    // Inicializar Express para rutas web
-    const app = express();
-    app.use(express.json());
-
-    // Rutas de ejemplo (solo disponibles si el modo no es INTER_EXCHANGE)
-    app.get('/binance/book/:symbol', async (req, res) => {
-        try {
-            const book = await getOrderBook(req.params.symbol);
-            res.json(book);
-        } catch (error) {
-            res.status(500).send({ error: error.message });
-        }
+// Ruta de Salud (Health Check)
+app.get('/', (req, res) => {
+    res.status(200).send({ 
+        message: 'Arbitrage Backend Running.',
+        mode: ARBITRAGE_MODE,
+        diagnostics: 'Run /api/v1/diagnostics to check exchange status.'
     });
+});
 
-    app.listen(PORT, () => {
-        console.log(`Servidor de Binance corriendo en puerto ${PORT}`);
-    });
-    
-} else if (ARBITRAGE_MODE === 'WEB_ONLY') {
-    
-    // Inicializar Express para rutas web (similar a INTRA_EXCHANGE pero sin motor de arbitraje)
-    const app = express();
-    app.use(express.json());
+// Ruta de diagnóstico (necesitas crear esta en tu archivo routes/diagnostics.js)
+// app.get('/api/v1/diagnostics', getDiagnostics); 
 
-    app.get('/binance/book/:symbol', async (req, res) => {
-        try {
-            const book = await getOrderBook(req.params.symbol);
-            res.json(book);
-        } catch (error) {
-            res.status(500).send({ error: error.message });
-        }
-    });
-
-    app.listen(PORT, () => {
-        console.log(`Servidor de Binance (Modo WEB_ONLY) corriendo en puerto ${PORT}`);
-    });
-
-} else {
-    // Si se pasa cualquier otro valor desconocido
-    console.error(`ERROR: ARBITRAGE_MODE desconocido: ${ARBITRAGE_MODE}. No se iniciará ningún motor.`);
-}
+// Iniciar el servidor
+app.listen(PORT, () => {
+    console.log(`[WEB] Servidor Express escuchando en el puerto ${PORT}`);
+});

@@ -1,14 +1,21 @@
 {
   "name": "backend-binance",
   "version": "1.0.0",
-  "description": "Backend para motor de arbitraje usando Binance y Bitbex",
+  "description": "Motor de arbitraje para Binance y Bitbex",
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "@binance/connector": "^3.0.0",
-    "express": "^4.19.2"
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    
+    // Aquí es donde añadirías otras librerías necesarias para tu lógica
+    // (Ejemplos sugeridos, debes verificar cuáles necesitas realmente)
+    "axios": "^1.6.8" 
+    // "node-binance-api": "^0.13.1",
+    // "ws": "^8.16.0" 
   }
 }

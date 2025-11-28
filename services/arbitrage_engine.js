@@ -1,5 +1,4 @@
 // arbitrage_engine.js
-// Motor principal que utiliza los servicios de precios (Binance y Bitbex) para buscar oportunidades de arbitraje.
 import { getBinancePrice, getUSDTBalance } from './services/binance_service.js';
 import { getBitbexPrice } from './services/bitbex_service.js';
 
@@ -33,7 +32,6 @@ function checkTriangularArbitrage(prices) {
     }
     
     // Cálculo de la ruta: 1 USDT -> ETH -> BTC -> USDT
-    // Result = (1 / Price_ETHUSDT_Bid) * (1 / Price_BTCETH_Bid) * Price_BTCUSDT_Ask
     let result = (1 / p_ETHUSDT_bid) / p_BTCETH_bid * p_BTCUSDT_ask;
 
     // Descontar 3 comisiones (una por cada trade)
@@ -133,4 +131,27 @@ async function engineLoop(availableUSDT) {
             'BTCETH': p_BTCETH
         };
 
-        // ---
+        // --- 2. Chequear Oportunidades ---
+        checkInterExchangeArbitrage(binancePriceBTC, bitbexPriceBTC, availableUSDT);
+        checkTriangularArbitrage(allBinancePrices);
+
+    } catch (error) {
+        console.error("Error grave en el ciclo principal del motor:", error.message);
+    }
+}
+
+/**
+ * Inicia el motor de arbitraje.
+ */
+export async function startEngine() {
+    console.log("Iniciando motor de arbitraje...");
+    
+    // Obtener Saldo Inicial (Simulado)
+    const availableUSDT = await getUSDTBalance();
+    console.log(`Saldo de USDT disponible (simulado/real): ${availableUSDT.toFixed(2)} USDT`);
+    
+    // Ejecutar el ciclo principal inmediatamente y luego en intervalos
+    await engineLoop(availableUSDT);
+    
+    setInterval(() => engineLoop(availableUSDT), ARBITRAGE_CHECK_INTERVAL_MS);
+}

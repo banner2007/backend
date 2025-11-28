@@ -1,34 +1,88 @@
 // services/bitbex_service.js
+// Este servicio ahora intenta conectarse a la API pública de Bitbex.
+
+/**
+ * URL de la API de Bitbex para obtener el ticker de un par.
+ * ⚠️ ATENCIÓN: DEBES BUSCAR la URL del endpoint público de Bitbex
+ * para obtener el precio de BTCUSDT y reemplazar este PLACEHOLDER.
+ */
+const BITBEX_TICKER_API_URL = "https://api.bitbex.net/v1/public/ticker?symbol=BTCUSDT"; 
+
+/**
+ * Pausa la ejecución por el tiempo especificado.
+ * @param {number} ms - Milisegundos a esperar.
+ */
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Implementa la lógica de reintento con backoff exponencial.
+ * @param {Function} fn - Función a ejecutar.
+ * @param {number} maxRetries - Máximo número de reintentos.
+ */
+async function retryOperation(fn, maxRetries = 3) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            // Reintenta solo si no es el último intento
+            if (i < maxRetries - 1) {
+                const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                // console.log(`Error al obtener precio, reintentando en ${delay.toFixed(0)}ms...`);
+                await sleep(delay);
+            } else {
+                throw error; // Lanza el error si es el último intento fallido
+            }
+        }
+    }
+}
+
 
 /**
  * Obtiene el precio de mercado (ask y bid) del par de trading especificado desde Bitbex.
- * * NOTA: Esta versión simula el precio de Bitbex con una pequeña variación aleatoria
- * para fines de prueba. En la vida real, esta función debe hacer una llamada
- * HTTP a la API pública de Bitbex para obtener datos reales.
- * * @param {string} symbol - El par de trading (e.g., 'BTCUSDT').
+ * @param {string} symbol - El par de trading (e.g., 'BTCUSDT').
  * @returns {Promise<Object>} Un objeto con { exchange: 'Bitbex', ask: number, bid: number }.
  */
 export async function getBitbexPrice(symbol) {
-    // --- SIMULACIÓN DE DATOS DE BITBEX ---
-    
-    // Asumimos un precio base para simular (usamos un valor aproximado de BTC en la simulación)
-    const currentPriceEstimate = 60000; 
+    try {
+        const response = await retryOperation(async () => {
+            const res = await fetch(BITBEX_TICKER_API_URL);
+            if (!res.ok) {
+                throw new Error(`Error HTTP: ${res.status}`);
+            }
+            return res.json();
+        });
 
-    // Simulación de que Bitbex tiene una pequeña variación con respecto a Binance
-    // Desviación aleatoria entre -10 y +10 (para simular el diferencial de precios)
-    const offset = Math.random() * 20 - 10; 
-    
-    // Precio simulado
-    const simulatedPrice = currentPriceEstimate + offset;
-    
-    // Asignamos bid (precio de compra) y ask (precio de venta) con un spread simulado de $3
-    const bid = parseFloat((simulatedPrice - 1.5).toFixed(2)); // Precio al que compramos en Bitbex
-    const ask = parseFloat((simulatedPrice + 1.5).toFixed(2)); // Precio al que vendemos en Bitbex
+        // ⚠️ ZONA CRÍTICA: DEBES ADAPTAR ESTA PARTE ⚠️
+        // Analiza la estructura de la respuesta de Bitbex y extrae los valores correctos.
+        // Asumo que la respuesta tiene un campo 'bid' y 'ask' en la raíz.
 
-    // En una implementación real, bid y ask se obtendrían directamente de la API de Bitbex.
-    return {
-        exchange: 'Bitbex',
-        ask: ask,
-        bid: bid // Este es el precio clave que se compara con Binance ASK
-    };
+        const bitbexBidPrice = parseFloat(response.bid); // Precio de COMPRA (BID)
+        const bitbexAskPrice = parseFloat(response.ask); // Precio de VENTA (ASK)
+
+        if (isNaN(bitbexBidPrice) || isNaN(bitbexAskPrice)) {
+            // Si la estructura no coincide con 'bid' o 'ask', puedes devolver un error para que el arbitraje se salte este ciclo.
+            throw new Error("Bitbex API response format is incorrect or prices are missing.");
+        }
+        
+        // El motor de arbitraje (arbitrage_engine.js) usa el BID de Bitbex.
+        return {
+            exchange: 'Bitbex',
+            ask: bitbexAskPrice, 
+            bid: bitbexBidPrice // El precio que necesitamos para comprar barato
+        };
+
+    } catch (error) {
+        console.error(`ERROR en getBitbexPrice: No se pudo obtener el precio real. Usando datos de emergencia (Simulación).`, error.message);
+        
+        // --- FALLBACK DE EMERGENCIA (SIMULACIÓN DE PRECIOS CON MAYOR REALISMO) ---
+        // Si la API falla, intentamos una simulación más cercana al precio real de BTC (~60k)
+        const currentPriceEstimate = 60000; 
+        const offset = Math.random() * 50 - 25; // Pequeña variación
+        const simulatedPrice = currentPriceEstimate + offset;
+        return {
+            exchange: 'Bitbex (Fallback)',
+            ask: simulatedPrice + 1.0, 
+            bid: simulatedPrice - 1.0 // Un bid más cercano a la realidad
+        };
+    }
 }

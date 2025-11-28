@@ -1,33 +1,31 @@
-import { Spot } from '@binance/connector';
-
-// Las claves API deben ser definidas como variables de entorno
-const API_KEY = process.env.BINANCE_API_KEY;
-const SECRET_KEY = process.env.BINANCE_SECRET_KEY;
-
-// Inicializa el cliente solo si las claves están disponibles
-const client = (API_KEY && SECRET_KEY) ? new Spot(API_KEY, SECRET_KEY) : null;
+// binance_service.js
 
 /**
- * Obtiene el precio de mercado actual para un par de trading en Binance.
- * @param {string} symbol - El par de trading (ej: 'BTCUSDT').
- * @returns {Promise<number>} El precio del par.
+ * Obtiene el precio de mercado (ask y bid) del par de trading especificado desde Binance.
+ * Nota: En un entorno real, usarías la API de Binance aquí.
+ * @param {string} symbol - El par de trading (e.g., 'BTCUSDT').
+ * @returns {Promise<Object>} Un objeto con { exchange: 'Binance', ask: number, bid: number }.
  */
 export async function getBinancePrice(symbol) {
-    if (!client) {
-        console.warn("[BINANCE SERVICE] API Keys no configuradas. Usando precio simulado.");
-        // Devuelve un precio simulado para desarrollo
-        return 65000.00 + Math.random() * 100;
-    }
+    console.log(`[Binance] Buscando precio para ${symbol}...`);
 
     try {
-        // Usa el endpoint 'ticker/price' para obtener el precio
-        const response = await client.tickerPrice(symbol);
+        // Simulando una llamada a la API
+        // const response = await fetch(`https://api.binance.com/api/v3/ticker/bookTicker?symbol=${symbol}`);
+        // const data = await response.json();
         
-        // La respuesta es un objeto como { symbol: 'BTCUSDT', price: '65050.12' }
-        const price = parseFloat(response.data.price);
-        return price;
+        // **Usamos datos simulados para el entorno de ejemplo**
+        const ask = parseFloat((Math.random() * 0.5 + 28000).toFixed(2)); // Precio de venta simulado
+        const bid = parseFloat((ask - 1.5).toFixed(2)); // Precio de compra simulado
+        
+        return {
+            exchange: 'Binance',
+            ask: ask, // El precio al que la gente está dispuesta a vender (tú compras)
+            bid: bid  // El precio al que la gente está dispuesta a comprar (tú vendes)
+        };
+
     } catch (error) {
-        console.error(`[BINANCE SERVICE ERROR] Error al obtener precio de ${symbol}:`, error.message);
-        throw new Error(`Fallo en Binance: ${error.message}`);
+        console.error(`[Binance Error] No se pudo obtener el precio: ${error.message}`);
+        return { exchange: 'Binance', ask: null, bid: null };
     }
 }

@@ -1,65 +1,95 @@
-// services/arbitrage_engine.js
+import { getBinancePrice } from './binance_service.js';
+import { getBitbexPrice } from './bitbex_service.js';
 
-import { getBinanceAccountBalance } from './binance_service.js';
-// CORREGIDO: Importa la función con el nombre correcto: getBitbexAccountBalance
-import { getBitbexAccountBalance } from './bitbex_service.js'; 
+// Define el par de trading que se va a monitorear (Ej: Bitcoin)
+const TRADING_PAIR = 'BTCUSDT'; 
+const RECHECK_INTERVAL_MS = 5000; // Revisar cada 5 segundos
+let isRunning = false;
 
 /**
- * Inicia el motor de arbitraje Inter-Exchange (Binance vs Bitbex).
- * Ejecuta pruebas de conexión y luego la lógica de arbitraje.
+ * Función principal que busca oportunidades de arbitraje.
  */
-export async function startInterArbitrage() {
-    console.log('[DIAGNÓSTICO INTER-EXCHANGE] Verificando conexiones de exchanges...');
+async function checkArbitrageOpportunity() {
+    if (!isRunning) return;
 
-    // 1. Verificar Binance
-    console.log('--- Diagnóstico Binance ---');
-    const binanceStatus = await getBinanceAccountBalance();
-    console.log(`[DIAGNÓSTICO BINANCE] Estado: ${binanceStatus.message}`);
-    if (binanceStatus.success && binanceStatus.balances && binanceStatus.balances.length > 0) {
-        console.log(`[INFO BINANCE] Balances encontrados: ${binanceStatus.balances.map(b => `${b.free} ${b.asset}`).join(', ')}`);
-    } else if (binanceStatus.success && (!binanceStatus.balances || binanceStatus.balances.length === 0)) {
-        console.log('[INFO BINANCE] Conexión OK, pero no se encontraron balances distintos de cero (¡Revisa si tienes fondos o si la clave tiene permiso de lectura!).');
+    console.log(`[ENGINE] Chequeando precios para ${TRADING_PAIR}...`);
+
+    try {
+        const binancePrice = await getBinancePrice(TRADING_PAIR);
+        const bitbexPrice = await getBitbexPrice(TRADING_PAIR);
+
+        if (binancePrice && bitbexPrice) {
+            console.log(`\n--- PRECIOS ACTUALES ---`);
+            console.log(`Binance (${TRADING_PAIR}): $${binancePrice}`);
+            console.log(`Bitbex (${TRADING_PAIR}): $${bitbexPrice}`);
+
+            const difference = bitbexPrice - binancePrice;
+            const percentageDifference = (difference / binancePrice) * 100;
+            
+            console.log(`Diferencia Absoluta: $${difference.toFixed(2)}`);
+            console.log(`Diferencia Porcentual: ${percentageDifference.toFixed(4)}%`);
+            console.log(`------------------------\n`);
+
+            // Lógica simple de arbitraje: si la diferencia es mayor al 0.1%
+            if (percentageDifference > 0.1) {
+                console.log(`*** ¡OPORTUNIDAD DE ARBITRAJE ENCONTRADA! ***`);
+                console.log(`Comprar en Binance ($${binancePrice.toFixed(2)}), Vender en Bitbex ($${bitbexPrice.toFixed(2)}).`);
+                // Aquí se agregaría la lógica real de ejecución de órdenes.
+            } else if (percentageDifference < -0.1) {
+                console.log(`*** ¡OPORTUNIDAD DE ARBITRAJE INVERSA ENCONTRADA! ***`);
+                console.log(`Comprar en Bitbex ($${bitbexPrice.toFixed(2)}), Vender en Binance ($${binancePrice.toFixed(2)}).`);
+            } else {
+                console.log(`Diferencia por debajo del umbral (0.1%). Esperando...`);
+            }
+        }
+    } catch (error) {
+        console.error(`[ENGINE ERROR] Fallo al chequear precios:`, error.message);
     }
 
-    // 2. Verificar Bitbex
-    console.log('--- Diagnóstico Bitbex ---');
-    // CORRECTO: Usamos la función con el nombre que BitbexService exporta
-    const bitbexStatus = await getBitbexAccountBalance(); 
-    console.log(`[DIAGNÓSTICO BITBEX] Estado: ${bitbexStatus.message}`);
-    if (bitbexStatus.success && bitbexStatus.balances && bitbexStatus.balances.length > 0) {
-        console.log(`[INFO BITBEX] Balances encontrados: ${bitbexStatus.balances.map(b => `${b.free} ${b.asset}`).join(', ')}`);
-    } else if (bitbexStatus.success && (!bitbexStatus.balances || bitbexStatus.balances.length === 0)) {
-        console.log('[INFO BITBEX] Conexión OK, pero no se encontraron balances distintos de cero (¡Revisa si tienes fondos!).');
-    }
-
-    if (binanceStatus.success && bitbexStatus.success) {
-        console.log('\n[MOTOR INICIADO] ¡Ambos exchanges están configurados y autenticados! Iniciando el ciclo de arbitraje...');
-        
-        // --- BUCLE PRINCIPAL DE ARBITRAJE INTER-EXCHANGE ---
-        
-        setInterval(() => {
-            // Lógica principal: 
-            // 1. Obtener libros de órdenes de ambos exchanges.
-            // 2. Comparar Bid más alto de A con Ask más bajo de B.
-            // 3. Ejecutar órdenes si la oportunidad es mayor al spread (comisiones).
-        }, 5000); // Escanear cada 5 segundos
-        
-    } else {
-        console.error('\n[MOTOR DETENIDO] No se puede iniciar el arbitraje inter-exchange. Revisa los errores de autenticación anteriores.');
-    }
+    // Vuelve a chequear después del intervalo
+    setTimeout(checkArbitrageOpportunity, RECHECK_INTERVAL_MS);
 }
 
 /**
- * Inicia el motor de arbitraje Intra-Exchange (Solo Binance).
+ * Inicia el motor de arbitraje.
+ * @returns {string} El estado actual del motor.
  */
-export function startIntraArbitrage() {
-    console.log('[DIAGNÓSTICO INTRA-EXCHANGE] Verificando conexión de Binance...');
-    
-    // (Aquí se verificaría la conexión de Binance si no se hizo antes)
+export const startArbitrageEngine = () => {
+    if (isRunning) {
+        return "El motor ya está en funcionamiento.";
+    }
+    console.log("=========================================");
+    console.log("       INICIANDO MOTOR DE ARBITRAJE      ");
+    console.log("=========================================");
+    isRunning = true;
+    checkArbitrageOpportunity();
+    return "Motor de arbitraje iniciado con éxito.";
+};
 
-    console.log('[MOTOR INICIADO] Iniciando el ciclo de arbitraje intra-exchange de Binance...');
-    
-    setInterval(() => {
-        // Lógica de arbitraje triangular (tres pares).
-    }, 10000); // Escanear cada 10 segundos
-}
+/**
+ * Detiene el motor de arbitraje.
+ * Nota: El `setTimeout` se encarga de parar el loop al comprobar `isRunning`.
+ * @returns {string} El estado actual del motor.
+ */
+export const stopArbitrageEngine = () => {
+    if (!isRunning) {
+        return "El motor ya está detenido.";
+    }
+    isRunning = false;
+    console.log("=========================================");
+    console.log("       MOTOR DE ARBITRAJE DETENIDO       ");
+    console.log("=========================================");
+    return "Motor de arbitraje detenido.";
+};
+
+/**
+ * Obtiene el estado actual del motor.
+ * @returns {object} Objeto con el estado del motor.
+ */
+export const getEngineStatus = () => {
+    return {
+        status: isRunning ? 'running' : 'stopped',
+        pair: TRADING_PAIR,
+        interval: `${RECHECK_INTERVAL_MS / 1000}s`
+    };
+};

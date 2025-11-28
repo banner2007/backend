@@ -1,7 +1,8 @@
 // services/binance_service.js
-// Usa la API pública de Binance para una estabilidad máxima, evitando problemas de cold start.
+// ESTE CÓDIGO ESTÁ CONFIGURADO PARA CONECTARSE A SU BACKEND DE RAILWAY
+// ADVERTENCIA: Puede experimentar errores de "Cold Start" o "Failed to fetch" debido a la latencia del backend.
 
-const BINANCE_TICKER_API = "https://api.binance.com/api/v3/ticker/price";
+const RAILWAY_BASE_URL = "https://backend-production-228b.up.railway.app";
 
 /**
  * Pausa la ejecución por el tiempo especificado.
@@ -10,7 +11,7 @@ const BINANCE_TICKER_API = "https://api.binance.com/api/v3/ticker/price";
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Implementa la lógica de reintento con backoff exponencial para mejorar la resiliencia de la red.
+ * Implementa la lógica de reintento con backoff exponencial.
  * @param {Function} fn - Función asíncrona a ejecutar.
  * @param {number} maxRetries - Máximo número de reintentos.
  */
@@ -21,7 +22,7 @@ async function retryOperation(fn, maxRetries = 5) {
         } catch (error) {
             if (i < maxRetries - 1) {
                 const delay = Math.pow(2, i) * 1000 + 1000;
-                // console.log(`Error de red, reintentando en ${delay.toFixed(0)}ms...`);
+                console.warn(`Intento ${i + 1}/${maxRetries} fallido para Railway. Reintentando en ${delay.toFixed(0)}ms... (Posible Cold Start)`);
                 await sleep(delay);
             } else {
                 // Después del último reintento fallido, lanzamos el error
@@ -33,39 +34,32 @@ async function retryOperation(fn, maxRetries = 5) {
 
 
 /**
- * Obtiene el precio de mercado (ask y bid simulado) del par de trading especificado desde Binance.
+ * Obtiene el precio de mercado (ask y bid) desde Binance a través del backend de Railway.
  * @param {string} symbol - El par de trading (e.g., 'BTCUSDT').
  * @returns {Promise<Object>} Un objeto con { exchange: 'Binance', ask: number, bid: number }.
  */
 export async function getBinancePrice(symbol) {
     try {
-        const url = `${BINANCE_TICKER_API}?symbol=${symbol.toUpperCase()}`;
+        const url = `${RAILWAY_BASE_URL}/binance/prices?symbols=[%22${symbol}%22]`;
         
         const response = await retryOperation(async () => {
             const res = await fetch(url);
             if (!res.ok) {
-                // Si la respuesta no es OK (ej. 404 o 500), lanzamos un error para que se reintente
-                throw new Error(`Error HTTP de Binance: ${res.status}`);
+                throw new Error(`Error HTTP de Railway: ${res.status}`);
             }
-            return res.json();
+            const data = await res.json();
+            
+            if (data && data[symbol]) {
+                 return {
+                    exchange: 'Binance',
+                    ask: parseFloat(data[symbol].ask), 
+                    bid: parseFloat(data[symbol].bid) 
+                 };
+            }
+            throw new Error("Respuesta de Railway incompleta o en formato incorrecto.");
         });
 
-        // La API de Binance solo da un 'price'. Simulamos el ASK/BID con un spread muy pequeño (0.01%)
-        const lastPrice = parseFloat(response.price);
-
-        const spread = 0.0001; // Spread de 0.01% para simular bid/ask
-        const askPrice = lastPrice * (1 + spread); // Precio de VENTA (Ask)
-        const bidPrice = lastPrice * (1 - spread); // Precio de COMPRA (Bid)
-
-        if (isNaN(lastPrice)) {
-            throw new Error("La respuesta de la API de Binance tiene un formato incorrecto o falta el precio.");
-        }
-        
-        return {
-            exchange: 'Binance',
-            ask: askPrice, 
-            bid: bidPrice 
-        };
+        return response;
 
     } catch (error) {
         console.error(`ERROR en getBinancePrice para ${symbol}. Usando precios de emergencia (Simulación).`, error.message);
@@ -84,13 +78,11 @@ export async function getBinancePrice(symbol) {
 
 
 /**
- * Función para obtener el Saldo de USDT.
- * NOTA: Para un saldo real, se requeriría la implementación de la API Key/Secret de Binance
- * y la llamada a un endpoint privado. Por defecto, se usa un valor simulado.
+ * Función para obtener el Saldo de USDT (Simulado).
+ * NOTA: El saldo real requeriría el uso de las claves API privadas en el backend de Railway.
  * @returns {Promise<number>} Saldo de USDT.
  */
 export async function getUSDTBalance() {
-    console.log("⚠️ Advertencia: La función getUSDTBalance está usando un saldo simulado. Implemente la conexión privada de Binance para el saldo real.");
-    // Devolvemos un saldo simulado de 1000 USDT.
+    console.log("⚠️ Advertencia: La función getUSDTBalance está usando un saldo simulado (1000 USDT).");
     return 1000.00; 
 }

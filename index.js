@@ -11,13 +11,18 @@ import { startIntraArbitrage, startInterArbitrage } from './services/arbitrage_e
 const ARBITRAGE_MODE = process.env.ARBITRAGE_MODE || 'WEB_ONLY'; 
 const PORT = process.env.PORT || 3000;
 const BINANCE_KEY = process.env.BINANCE_API_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA';
+const BINANCE_SECRET = process.env.BINANCE_SECRET_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'; // Nueva
 const BITBEX_KEY = process.env.BITBEX_API_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA';
+const BITBEX_SECRET = process.env.BITBEX_SECRET_KEY ? 'CONFIGURADA' : 'NO CONFIGURADA'; // Nueva
 
 console.log('--- INICIO DE CONFIGURACIÓN DEL SERVICIO ---');
 console.log(`[INFO] Puerto de escucha: ${PORT}`);
 console.log(`[INFO] Modo de Arbitraje Solicitado: ${ARBITRAGE_MODE}`);
+// Se añaden las 4 verificaciones principales
 console.log(`[INFO] Estado de BINANCE_API_KEY: ${BINANCE_KEY}`);
+console.log(`[INFO] Estado de BINANCE_SECRET_KEY: ${BINANCE_SECRET}`);
 console.log(`[INFO] Estado de BITBEX_API_KEY: ${BITBEX_KEY}`);
+console.log(`[INFO] Estado de BITBEX_SECRET_KEY: ${BITBEX_SECRET}`);
 console.log('--------------------------------------------');
 
 

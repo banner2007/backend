@@ -10,8 +10,8 @@ const BINANCE_TICKER_API = "https://api.binance.com/api/v3/ticker/price";
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Implementa la lógica de reintento con backoff exponencial.
- * @param {Function} fn - Función a ejecutar.
+ * Implementa la lógica de reintento con backoff exponencial para mejorar la resiliencia de la red.
+ * @param {Function} fn - Función asíncrona a ejecutar.
  * @param {number} maxRetries - Máximo número de reintentos.
  */
 async function retryOperation(fn, maxRetries = 5) {
@@ -24,6 +24,7 @@ async function retryOperation(fn, maxRetries = 5) {
                 // console.log(`Error de red, reintentando en ${delay.toFixed(0)}ms...`);
                 await sleep(delay);
             } else {
+                // Después del último reintento fallido, lanzamos el error
                 throw error;
             }
         }
@@ -43,7 +44,8 @@ export async function getBinancePrice(symbol) {
         const response = await retryOperation(async () => {
             const res = await fetch(url);
             if (!res.ok) {
-                throw new Error(`Error HTTP: ${res.status}`);
+                // Si la respuesta no es OK (ej. 404 o 500), lanzamos un error para que se reintente
+                throw new Error(`Error HTTP de Binance: ${res.status}`);
             }
             return res.json();
         });
@@ -51,12 +53,12 @@ export async function getBinancePrice(symbol) {
         // La API de Binance solo da un 'price'. Simulamos el ASK/BID con un spread muy pequeño (0.01%)
         const lastPrice = parseFloat(response.price);
 
-        const spread = 0.0001; 
-        const askPrice = lastPrice * (1 + spread); // Precio de VENTA (usado en arbitraje Inter-Exchange)
-        const bidPrice = lastPrice * (1 - spread); // Precio de COMPRA
+        const spread = 0.0001; // Spread de 0.01% para simular bid/ask
+        const askPrice = lastPrice * (1 + spread); // Precio de VENTA (Ask)
+        const bidPrice = lastPrice * (1 - spread); // Precio de COMPRA (Bid)
 
         if (isNaN(lastPrice)) {
-            throw new Error("Binance API response format is incorrect or price is missing.");
+            throw new Error("La respuesta de la API de Binance tiene un formato incorrecto o falta el precio.");
         }
         
         return {
@@ -66,14 +68,14 @@ export async function getBinancePrice(symbol) {
         };
 
     } catch (error) {
-        console.error(`ERROR en getBinancePrice. Usando precios de emergencia (Simulación).`, error.message);
+        console.error(`ERROR en getBinancePrice para ${symbol}. Usando precios de emergencia (Simulación).`, error.message);
         
-        // Fallback de emergencia
+        // Fallback de emergencia si todo falla
         const currentPriceEstimate = symbol.startsWith('BTC') ? 60000 : 3000; 
         const offset = Math.random() * 10 - 5; 
         const simulatedPrice = currentPriceEstimate + offset;
         return {
-            exchange: 'Binance (Fallback)',
+            exchange: 'Binance (Fallback de Emergencia)',
             ask: simulatedPrice * 1.0001, 
             bid: simulatedPrice * 0.9999
         };
@@ -82,14 +84,13 @@ export async function getBinancePrice(symbol) {
 
 
 /**
- * Función para el Saldo (Simulado).
- * Requeriría API Key y Secret reales para obtener el saldo real.
+ * Función para obtener el Saldo de USDT.
+ * NOTA: Para un saldo real, se requeriría la implementación de la API Key/Secret de Binance
+ * y la llamada a un endpoint privado. Por defecto, se usa un valor simulado.
  * @returns {Promise<number>} Saldo de USDT.
  */
 export async function getUSDTBalance() {
-    // Si necesitas el saldo real, deberás implementar la autenticación y la llamada a
-    // un endpoint privado de Binance aquí.
-    console.log("⚠️ Advertencia: Para un saldo real, se necesita la API Key/Secret. Usando saldo simulado.");
-    // Devolvemos un saldo simulado para que la lógica de volumen no falle.
+    console.log("⚠️ Advertencia: La función getUSDTBalance está usando un saldo simulado. Implemente la conexión privada de Binance para el saldo real.");
+    // Devolvemos un saldo simulado de 1000 USDT.
     return 1000.00; 
 }

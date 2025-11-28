@@ -1,113 +1,76 @@
 // services/bitbex_service.js
+// Archivo de servicio para la comunicación con el exchange Bitbex.
+// NOTA: Este código es una simulación de los endpoints privados y públicos de Bitbex
+// para permitir que el motor de arbitraje realice el diagnóstico de claves.
 
-const axios = require('axios');
-require('dotenv').config();
-
-// --- CONFIGURACIÓN DE BITBEX ---
-const BITBEX_API_KEY = process.env.BITBEX_API_KEY;
-const BITBEX_API_SECRET = process.env.BITBEX_API_SECRET;
-const BITBEX_BASE_URL = 'https://api.bitbex.net/v1'; // URL de ejemplo, reemplázala con la real
+const apiKey = process.env.BITBEX_API_KEY;
+const apiSecret = process.env.BITBEX_SECRET_KEY;
 
 /**
- * Función para firmar las peticiones privadas (saldo, órdenes).
- * La lógica de firma (signing) varía según el exchange.
- * DEBES reemplazar este bloque con el método de autenticación real de Bitbex.net.
- * @param {string} endpoint - El endpoint de la API (ej: '/account/balance')
- * @param {object} params - Parámetros de la petición.
- * @returns {object} headers - Encabezados con la firma de seguridad.
+ * Obtiene el libro de órdenes (Order Book) de un símbolo específico en Bitbex.
+ * @param {string} symbol - Par de trading (ej: 'BTCUSDT').
+ * @returns {Promise<object>} - El libro de órdenes con 'bids' (compras) y 'asks' (ventas).
  */
-function getSignedHeaders(endpoint, params) {
-    // ESTO ES UN PLACEHOLDER.
-    // Lógica real de Bitbex: calcular un hash HMAC-SHA256, añadir la clave, etc.
-    const timestamp = Date.now();
-    const signature = 'GENERAR_FIRMA_AQUI'; // Reemplazar
-    
+export async function getBitbexOrderBook(symbol) {
+    console.log(`[SIMULACIÓN BITBEX] Obteniendo libro de órdenes para ${symbol}...`);
+    // En una implementación real, aquí se llamaría a la API pública de Bitbex.
     return {
-        'X-API-KEY': BITBEX_API_KEY,
-        'X-API-SIGNATURE': signature,
-        'X-API-TIMESTAMP': timestamp,
-        'Content-Type': 'application/json'
+        timestamp: Date.now(),
+        symbol: symbol,
+        bids: [['28000.50', '0.5'], ['28000.00', '1.0']], // Precio, Cantidad
+        asks: [['28001.00', '0.8'], ['28001.50', '0.2']]
     };
 }
 
-
 /**
- * Obtiene el libro de órdenes (Order Book) de un par específico.
- * Se usa para obtener los mejores precios de compra (Bid) y venta (Ask).
- * @param {string} symbol - El par a consultar (ej: 'BTCUSDT').
- * @returns {object|null} - Objeto con Bid y Ask, o null si falla.
+ * Realiza una prueba de conexión privada para verificar que las claves API de Bitbex
+ * sean válidas y que el usuario esté autenticado.
+ * * NOTA: Esta función es la que el motor de arbitraje (arbitrage_engine.js) importa.
+ * * @returns {Promise<object>} - Un objeto con el estado de la conexión y el saldo (simulado).
  */
-async function getOrderBook(symbol) {
-    const url = `${BITBEX_BASE_URL}/market/depth?symbol=${symbol}`;
+export async function getBitbexAccountBalance() {
+    if (!apiKey || !apiSecret) {
+        return { success: false, message: 'Claves API de Bitbex no configuradas.' };
+    }
+
     try {
-        const response = await axios.get(url);
-        
-        // Asumiendo que la respuesta tiene el formato { bids: [...], asks: [...] }
-        const data = response.data;
-        
-        if (data.bids && data.asks && data.bids.length > 0 && data.asks.length > 0) {
-            // El mejor Bid (compra) es el primer elemento de la lista Bid
-            const bestBid = parseFloat(data.bids[0][0]); 
-            // El mejor Ask (venta) es el primer elemento de la lista Ask
-            const bestAsk = parseFloat(data.asks[0][0]);
-            
-            return { bestBid, bestAsk };
+        // En una implementación real, aquí se llamaría a un endpoint privado de Bitbex.
+        // Simulamos un fallo si las claves son demasiado cortas o idénticas a Binance
+        const BINANCE_KEY = process.env.BINANCE_API_KEY;
+        if (apiKey.length < 10 || apiSecret.length < 10) {
+            return { success: false, message: 'Fallo de autenticación: Claves de Bitbex inválidas o demasiado cortas.' };
         }
-        return null;
+        if (apiKey === BINANCE_KEY) {
+             return { success: false, message: 'Error: La clave API de Bitbex es idéntica a la de Binance. ¡Verifica!' };
+        }
+
+        // Simulación exitosa
+        return {
+            success: true,
+            message: 'Conexión y autenticación de Bitbex SIMULADA como exitosa.',
+            balances: [{ asset: 'USDT', free: '500.00', locked: '0.00' }, { asset: 'BTC', free: '0.1', locked: '0.0' }]
+        };
     } catch (error) {
-        console.error(`BitbexService: Error al obtener Order Book para ${symbol}:`, error.message);
-        return null;
+        console.error('[BITBEX ERROR] Error desconocido al obtener el balance:', error.message);
+        return { success: false, message: `Error desconocido: ${error.message}` };
     }
 }
 
 /**
- * Obtiene el saldo de la cuenta.
- * @returns {object|null} - Objeto de saldos.
- */
-async function getAccountBalance() {
-    const endpoint = '/account/balance';
-    const url = BITBEX_BASE_URL + endpoint;
-    try {
-        const headers = getSignedHeaders(endpoint, {}); // Parámetros vacíos
-        const response = await axios.get(url, { headers });
-        return response.data;
-    } catch (error) {
-        console.error('BitbexService: Error al obtener saldo:', error.message);
-        return null;
-    }
-}
-
-/**
- * Coloca una orden de compra o venta en Bitbex.net.
- * @param {string} symbol - El par de trading.
+ * Simula la colocación de una orden en Bitbex.
+ * @param {string} symbol - Par de trading.
  * @param {string} side - 'BUY' o 'SELL'.
- * @param {number} quantity - La cantidad a operar.
- * @param {number} price - El precio límite (opcional).
- * @returns {object|null} - Respuesta de la orden.
+ * @param {number} quantity - Cantidad a operar.
+ * @returns {Promise<object>} - Resultado simulado de la orden.
  */
-async function placeOrder(symbol, side, quantity, price) {
-    const endpoint = '/order';
-    const url = BITBEX_BASE_URL + endpoint;
-    const params = {
+export async function placeBitbexOrder(symbol, side, quantity) {
+    // En una implementación real, aquí se colocaría la orden usando la librería de Bitbex.
+    console.log(`[SIMULACIÓN BITBEX] Colocando orden ${side} de ${quantity} ${symbol}...`);
+    return {
+        orderId: Math.floor(Math.random() * 1000000),
+        status: 'FILLED',
         symbol,
         side,
-        type: 'LIMIT', // Usamos límite para arbitraje
-        quantity,
-        price
+        executedQty: quantity
     };
-    
-    try {
-        const headers = getSignedHeaders(endpoint, params);
-        const response = await axios.post(url, params, { headers });
-        return response.data;
-    } catch (error) {
-        console.error(`BitbexService: Error al colocar orden ${side}:`, error.message);
-        return null;
-    }
 }
-
-module.exports = {
-    getOrderBook,
-    getAccountBalance,
-    placeOrder,
-};

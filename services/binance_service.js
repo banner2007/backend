@@ -1,5 +1,7 @@
 // services/binance_service.js
-import { Spot } from '@binance/connector/es';
+// La importación ha sido corregida para usar el path raíz del paquete,
+// resolviendo el error ERR_MODULE_NOT_FOUND de Node.js.
+import { Spot } from '@binance/connector'; // CORREGIDO: Eliminado '/es'
 
 // Cargar claves de entorno
 const apiKey = process.env.BINANCE_API_KEY;
@@ -67,17 +69,6 @@ export async function getBinanceAccountBalance() {
  * @returns {Promise<object>} - Resultado simulado de la orden.
  */
 export async function placeOrder(symbol, side, quantity) {
-    // Si necesitas implementar la lógica de orden real:
-    /*
-    try {
-        const response = await client.newOrder(symbol, side, 'MARKET', { quantity });
-        return response.data;
-    } catch (error) {
-        console.error('[BINANCE ORDER ERROR]:', error.message);
-        throw new Error('Fallo al colocar la orden en Binance.');
-    }
-    */
-   
     // Por ahora, solo simulación:
     console.log(`[SIMULACIÓN BINANCE] Colocando orden ${side} de ${quantity} ${symbol}...`);
     return {

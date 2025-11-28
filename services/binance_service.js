@@ -121,3 +121,4 @@ export async function getUSDTBalance() {
         return 1000.00; // Saldo simulado de fallback
     }
 }
+

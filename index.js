@@ -17,12 +17,12 @@ const BASE_CURRENCIES = ['USDT', 'BTC', 'ETH', 'BNB', 'BUSD', 'EUR', 'AUD'];
 // Función para inicializar CCXT de forma segura y perezosa
 const initializeExchange = () => {
     if (!exchange) {
-        // En ES Modules, ccxt se importa como default, pero a veces la clase está directa
-        // Dependiendo de la versión, puede ser ccxt.binance o ccxt.default.binance
-        const ExchangeClass = ccxt.binance || (ccxt.default && ccxt.default.binance); 
+        // En ES Modules, ccxt se importa como default.
+        // Verificamos si existe directamente o dentro de 'default'.
+        const ExchangeClass = ccxt.binance || (ccxt.default && ccxt.default.binance);
         
         if (!ExchangeClass) {
-            console.error("No se pudo encontrar la clase Binance en ccxt.");
+            console.error("No se pudo encontrar la clase Binance en el paquete ccxt.");
             return null;
         }
 
@@ -102,6 +102,7 @@ app.get('/', (req, res) => {
 app.get('/binance/prices', async (req, res) => {
     try {
         const binance = initializeExchange();
+        if (!binance) throw new Error("Exchange no inicializado");
         
         if (!req.query.symbols) {
             return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols.' });
@@ -175,6 +176,7 @@ app.get('/binance/prices', async (req, res) => {
 app.get('/binance/account', async (req, res) => {
     try {
         const binance = initializeExchange();
+        if (!binance) throw new Error("Exchange no inicializado");
         await binance.fetchTime(true);
         const balance = await binance.fetchBalance();
         
@@ -197,6 +199,7 @@ app.get('/binance/account', async (req, res) => {
 app.post('/binance/order', async (req, res) => {
     try {
         const binance = initializeExchange();
+        if (!binance) throw new Error("Exchange no inicializado");
         const { symbol, side, quantity } = req.body;
 
         if (!symbol || !side || !quantity) {

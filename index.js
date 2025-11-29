@@ -1,91 +1,111 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
+const ccxt = require('ccxt');
 
-// --- 1. CONFIGURACIÓN DEL PUERTO (CRÍTICO PARA RAILWAY) ---
-// Railway asigna un puerto a través de process.env.PORT
-// Usamos 3000 como fallback local para desarrollo.
+// --- 1. CONFIGURACIÓN DE ACCESO A BINANCE (Lee variables de entorno de Railway) ---
+// Las variables de entorno en Railway deben llamarse BINANCE_API_KEY y BINANCE_API_SECRET.
+const API_KEY = process.env.BINANCE_API_KEY; 
+const API_SECRET = process.env.BINANCE_API_SECRET; 
+
+// Crear instancia del exchange. ccxt detectará automáticamente si las claves son válidas.
+const exchange = new ccxt.binance({
+    apiKey: API_KEY,
+    secret: API_SECRET,
+    // La zona horaria es crítica para la firma de requests.
+    'options': { 'adjustForTimeDifference': true }
+});
+
+// --- CONFIGURACIÓN DEL SERVIDOR ---
 const PORT = process.env.PORT || 3000; 
-
 const app = express();
-
-// --- 2. MIDDLEWARES ---
-// Configurar CORS para permitir que el frontend se conecte (MUY IMPORTANTE)
 app.use(cors()); 
-
-// Middleware para que Express pueda leer JSON en el cuerpo de las peticiones
 app.use(express.json());
 
 
-// --- 3. RUTAS DE DIAGNÓSTICO Y FUNCIONALES ---
-
-// RUTA BASE: Útil para confirmar que el servidor está funcionando
+// RUTA BASE: Funciona como chequeo de salud
 app.get('/', (req, res) => {
-    console.log('Ruta / llamada.');
-    res.send('✅ Servidor de Arbitraje en Railway funcionando. Rutas principales: /binance/prices y /binance/account.');
+    res.send('✅ Servidor de Arbitraje en Railway funcionando. Conectado a Binance.');
 });
 
 
-// RUTA 1: Endpoint para obtener precios (Ejemplo con datos simulados)
+// RUTA 1: Obtener Precios del Libro de Órdenes (bid/ask)
 // URL de prueba: /binance/prices?symbols=["BTCUSDT","ETHUSDT"]
-app.get('/binance/prices', (req, res) => {
-    console.log('Ruta /binance/prices llamada.');
-
+app.get('/binance/prices', async (req, res) => {
     let symbols = [];
     try {
-        // Parsear los símbolos del query string (ej: symbols=["BTCUSDT","ETHUSDT"])
         if (req.query.symbols) {
-            symbols = JSON.parse(decodeURIComponent(req.query.symbols));
+            // ccxt usa el formato "BTC/USDT", por eso mapeamos el formato del frontend ("BTCUSDT")
+            symbols = JSON.parse(decodeURIComponent(req.query.symbols)).map(s => s.replace('USDT', '/USDT'));
+        } else {
+            return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols.' });
         }
-    } catch (e) {
-        console.error('Error al parsear símbolos:', e);
-        // Devolver un error 400 si el formato es incorrecto
-        return res.status(400).json({ status: "error", message: 'Formato de símbolos inválido.' });
-    }
-
-    if (symbols.length === 0) {
-        symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT']; // Valores predeterminados para simulación
-    }
-    
-    // --- LÓGICA SIMULADA (REEMPLAZAR CON LA LLAMADA A BINANCE) ---
-    const mockPrices = {};
-    symbols.forEach((s, index) => {
-        // Generación de precios de ejemplo
-        const basePrice = 60000 + (index * 1000); 
-        const ask = (basePrice + 0.50 + Math.random()).toFixed(2);
-        const bid = (basePrice - 0.50 - Math.random()).toFixed(2);
         
-        mockPrices[s] = { ask: ask, bid: bid };
-    });
-    // --- FIN DE LÓGICA SIMULADA ---
-    
-    // Enviamos el mock con status 200 OK
-    res.status(200).json(mockPrices);
+        // Cargar todos los tickers al mismo tiempo (mejor rendimiento)
+        const tickerPromises = symbols.map(symbol => exchange.fetchTicker(symbol));
+        const tickers = await Promise.all(tickerPromises);
+        
+        const prices = {};
+        tickers.forEach(ticker => {
+            if (ticker) {
+                // Mapear de vuelta al formato "BTCUSDT" que espera el frontend
+                const originalSymbol = ticker.symbol.replace('/', ''); 
+                prices[originalSymbol] = { 
+                    ask: ticker.ask.toFixed(4), // Mejor precio de venta
+                    bid: ticker.bid.toFixed(4)  // Mejor precio de compra
+                };
+            }
+        });
+
+        res.status(200).json(prices);
+
+    } catch (error) {
+        console.error("Error al obtener precios de Binance:", error.message);
+        // Devolvemos un 500 para diagnosticar problemas de conexión/IP
+        res.status(500).json({ 
+            status: "error", 
+            message: "Fallo al obtener precios. Revise Whitelisting de IP en Binance o el estado del exchange.", 
+            details: error.message 
+        });
+    }
 });
 
 
-// RUTA 2: Endpoint para obtener el saldo (Ejemplo con datos simulados)
+// RUTA 2: Obtener Saldo de la Cuenta (Requiere Autenticación)
 // URL de prueba: /binance/account
-app.get('/binance/account', (req, res) => {
-    console.log('Ruta /binance/account llamada.');
-    
-    // --- LÓGICA SIMULADA (REEMPLAZAR CON LA LLAMADA A BINANCE) ---
-    const mockAccount = {
-        makerCommission: 10,
-        takerCommission: 10,
-        balances: [
-            { asset: "USDT", free: "1000.00", locked: "0.00" },
-            { asset: "BTC", free: "0.005", locked: "0.00" },
-            { asset: "ETH", free: "0.1", locked: "0.00" }
-        ]
-    };
-    // --- FIN DE LÓGICA SIMULADA ---
+app.get('/binance/account', async (req, res) => {
+    try {
+        // fetchBalance es una llamada autenticada
+        const balance = await exchange.fetchBalance();
+        
+        // Simplificar balances para el frontend (solo activos con saldo mayor a cero)
+        const simplifiedBalances = Object.keys(balance.total).map(asset => ({
+            asset: asset,
+            free: balance.free[asset] ? balance.free[asset].toFixed(4) : "0.0000",
+            locked: balance.used[asset] ? balance.used[asset].toFixed(4) : "0.0000"
+        })).filter(b => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0);
+        
+        // Estructura de respuesta para el frontend
+        const accountData = {
+            makerCommission: 10, // Tasa de comisión (0.1%) - Simulado, Binance no la da fácilmente
+            takerCommission: 10,
+            balances: simplifiedBalances
+        };
 
-    res.status(200).json(mockAccount);
+        res.status(200).json(accountData);
+
+    } catch (error) {
+        console.error("Error al obtener datos de cuenta de Binance:", error.message);
+        // Si hay un error de autenticación (IP, clave incorrecta), devolvemos un 401
+        res.status(401).json({ 
+            status: "error", 
+            message: "Fallo de autenticación o rechazo por IP. ¿Son correctas las claves? ¿Ha deshabilitado la Whitelisting de IP en Binance?", 
+            details: error.message 
+        });
+    }
 });
 
 
-// --- 4. MANEJO DE RUTA NO ENCONTRADA (Catch-all para 404) ---
+// MANEJO DE RUTA NO ENCONTRADA (404)
 app.use((req, res, next) => {
     res.status(404).send({
         status: "error",
@@ -95,7 +115,7 @@ app.use((req, res, next) => {
 });
 
 
-// --- 5. INICIAR EL SERVIDOR ---
+// INICIAR EL SERVIDOR
 app.listen(PORT, () => {
     console.log(`🚀 Servidor Express escuchando en el puerto ${PORT}`);
 });

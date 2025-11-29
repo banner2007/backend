@@ -31,8 +31,9 @@ const initializeExchange = () => {
 };
 
 // Función para cargar los mercados y validar los símbolos (Se ejecuta SOLO UNA VEZ)
-const loadAndValidateMarkets = async (binance) => {
+const loadAndValidateMarkets = async () => {
     if (!marketsLoaded) {
+        const binance = initializeExchange();
         console.log("Cargando mercados de Binance...");
         try {
             await binance.loadMarkets();
@@ -48,9 +49,8 @@ const loadAndValidateMarkets = async (binance) => {
     }
 };
 
-// Ejecutamos la carga de mercados inmediatamente al inicio, pero de forma asíncrona
-// para evitar que el proceso Node.js se bloquee y previniendo el error SIGTERM.
-initializeExchange().then(loadAndValidateMarkets);
+// CRÍTICO: Llamamos a la función asíncrona directamente al inicio para que el proceso Node.js no se bloquee.
+loadAndValidateMarkets();
 
 
 // --- CONFIGURACIÓN DEL SERVIDOR ---
@@ -69,12 +69,20 @@ app.use(express.json());
 
 
 // RUTA IP: Obtener la IP Pública de Salida de Railway
+// Esta ruta es CRUCIAL para que usted pueda ver la IP y colocarla en la Whitelist de Binance.
 app.get('/ip', async (req, res) => {
     try {
+        // Usamos un servicio externo para consultar la IP de salida (la que ve Binance)
         const response = await axios.get('https://api.ipify.org?format=json');
         res.status(200).json({ ip: response.data.ip });
     } catch (error) {
-        res.status(500).json({ status: "error", message: "Fallo al obtener la IP externa." });
+        // Si falla la consulta externa, intentamos dar la IP de la petición si existe
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        res.status(500).json({ 
+            status: "error", 
+            message: "Fallo al obtener la IP externa. Intente revisar la IP de la cabecera: " + clientIp,
+            details: error.message
+        });
     }
 });
 
@@ -94,9 +102,10 @@ app.get('/binance/prices', async (req, res) => {
             return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols. Formato esperado: ?symbols=["BTCUSDT","ETHBTC"]' });
         }
         
-        // Esperamos a que los mercados carguen si no lo han hecho
+        // Si los mercados aún no han cargado (lo cual es raro después del fix), esperamos.
         if (!marketsLoaded) {
-             await loadAndValidateMarkets(binance);
+             console.warn("Mercados aún no cargados. Esperando...");
+             await loadAndValidateMarkets();
         }
 
         const rawSymbols = JSON.parse(decodeURIComponent(req.query.symbols));
@@ -119,7 +128,6 @@ app.get('/binance/prices', async (req, res) => {
             }
 
             if (!foundBase) {
-                 // Si no encontramos un base conocido, asumimos que no es un par de Binance o ya está en formato CCXT.
                  console.warn(`Símbolo omitido (base de trading desconocido, no termina en ${BASE_CURRENCIES.join('/')}): ${rawSymbol}`);
                  continue;
             }
@@ -187,6 +195,7 @@ app.get('/binance/account', async (req, res) => {
         res.status(200).json(accountData);
 
     } catch (error) {
+        // Si el error es 401, suele ser por la clave API o la Whitelist de IP.
         console.error("Error al obtener datos de cuenta de Binance:", error.message);
         res.status(401).json({ 
             status: "error", 

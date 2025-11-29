@@ -1,40 +1,65 @@
-// index.js
-// El punto de entrada de la aplicación, incluyendo el servidor Express.
+// index.js (Su servidor de Railway)
+const express = require('express');
+const cors = require('cors');
 
-import express from 'express';
-import { startEngine } from './arbitrage_engine.js';
+// La mayoría de los servicios de alojamiento usan la variable de entorno PORT
+const PORT = process.env.PORT || 3000; 
 
-// Usamos el puerto proporcionado por el entorno de Railway (o 8080 como predeterminado).
-const PORT = process.env.PORT || 8080;
 const app = express();
 
-/**
- * 1. Levanta el servidor Express
- * Es fundamental que esta parte se ejecute primero y empiece a escuchar en el puerto.
- */
-app.listen(PORT, () => {
-    console.log(`Servidor web Express escuchando en el puerto ${PORT}`);
-    console.log(`URL de estado: http://localhost:${PORT}/`);
-    
-    // 2. Inicia la lógica de arbitraje SOLO después de que el servidor esté activo y escuchando.
-    startEngine();
-});
+// Configurar CORS para permitir que su frontend se conecte (MUY IMPORTANTE)
+// Esto permite peticiones desde cualquier origen ('*')
+app.use(cors()); 
+
+// Middleware para que Express pueda leer JSON (si fuera necesario para POST, aunque GET no lo necesita)
+app.use(express.json());
 
 
-// --- Configuración de Rutas ---
-
-// Ruta principal para verificar el estado
+// --- 1. RUTA DE DIAGNÓSTICO (RUTA BASE) ---
+// Útil para confirmar que el servidor está funcionando
 app.get('/', (req, res) => {
-    res.send('El motor de Arbitraje Cripto está funcionando en segundo plano. Revisa la consola para los logs de las oportunidades.');
+    res.send('✅ Servidor de Arbitraje en Railway funcionando.');
 });
 
-// Ruta específica para la IP
-app.get('/ip', (req, res) => {
-    const clientIp = req.ip; 
-    res.json({ 
-        status: 'Running', 
-        service: 'Arbitraje Bot', 
-        message: 'Servidor Express activo y motor de arbitraje iniciado.',
-        client_ip: clientIp 
+
+// --- 2. RUTA REQUERIDA POR EL FRONTEND (PRUEBA 1) ---
+// Endpoint para obtener precios (Su frontend llama a esta ruta)
+app.get('/binance/prices', (req, res) => {
+    // Nota: Aquí es donde usted debe integrar la lógica real para llamar a la API de Binance.
+    // Para esta prueba, devolvemos una respuesta simulada 200 OK.
+    const symbol = req.query.symbols ? JSON.parse(req.query.symbols) : ['BTCUSDT'];
+    
+    // El frontend espera esta estructura de datos:
+    const mockPrices = {};
+    symbol.forEach(s => {
+        mockPrices[s] = { ask: "60000.00", bid: "59999.50" };
     });
+    
+    res.status(200).json(mockPrices);
+});
+
+
+// --- 3. RUTA REQUERIDA POR EL FRONTEND (PRUEBA 2) ---
+// Endpoint para obtener el saldo de la cuenta (Su frontend llama a esta ruta)
+app.get('/binance/account', (req, res) => {
+    // Nota: Aquí es donde usted debe integrar la lógica real para obtener el saldo.
+    // Para esta prueba, devolvemos una respuesta simulada 200 OK.
+    
+    // El frontend espera esta estructura de datos:
+    const mockAccount = {
+        makerCommission: 10,
+        takerCommission: 10,
+        balances: [
+            { asset: "USDT", free: "1000.00", locked: "0.00" },
+            { asset: "BTC", free: "0.00", locked: "0.00" }
+        ]
+    };
+    
+    res.status(200).json(mockAccount);
+});
+
+
+// Iniciar el servidor
+app.listen(PORT, () => {
+    console.log(`Servidor Express escuchando en el puerto ${PORT}`);
 });

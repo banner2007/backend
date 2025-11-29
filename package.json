@@ -1,13 +1,15 @@
 {
   "name": "arbitrage-backend",
   "version": "1.0.0",
-  "description": "Backend for crypto arbitrage service.",
+  "description": "Backend para el servicio de arbitraje crypto.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "axios": "^1.6.2",
+    "ccxt": "^4.2.79" 
   }
 }

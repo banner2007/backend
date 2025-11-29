@@ -11,6 +11,8 @@ const API_SECRET = process.env.BINANCE_SECRET_KEY;
 let exchange;
 let marketsLoaded = false;
 let validSymbols = new Set();
+// Definimos los pares base que esperamos. Esto ayuda a analizar el símbolo.
+const BASE_CURRENCIES = ['USDT', 'BTC', 'ETH', 'BNB', 'BUSD', 'EUR', 'AUD']; 
 
 // Función para inicializar CCXT de forma segura y perezosa
 const initializeExchange = () => {
@@ -28,23 +30,34 @@ const initializeExchange = () => {
     return exchange;
 };
 
-// Función para cargar los mercados y validar los símbolos
+// Función para cargar los mercados y validar los símbolos (Se ejecuta SOLO UNA VEZ)
 const loadAndValidateMarkets = async (binance) => {
     if (!marketsLoaded) {
         console.log("Cargando mercados de Binance...");
-        await binance.loadMarkets();
-        // Guardamos todos los símbolos válidos en un Set para búsquedas rápidas
-        validSymbols = new Set(Object.keys(binance.markets));
-        marketsLoaded = true;
-        console.log(`Mercados cargados. Total de símbolos: ${validSymbols.size}`);
+        try {
+            await binance.loadMarkets();
+            // Guardamos todos los símbolos válidos en un Set
+            validSymbols = new Set(Object.keys(binance.markets));
+            marketsLoaded = true;
+            console.log(`Mercados cargados. Total de símbolos: ${validSymbols.size}`);
+        } catch (error) {
+            console.error("ERROR CRÍTICO: No se pudieron cargar los mercados de Binance. Esto podría causar fallos en /binance/prices.", error.message);
+            marketsLoaded = true; 
+            validSymbols = new Set();
+        }
     }
 };
+
+// Ejecutamos la carga de mercados inmediatamente al inicio, pero de forma asíncrona
+// para evitar que el proceso Node.js se bloquee y previniendo el error SIGTERM.
+initializeExchange().then(loadAndValidateMarkets);
+
 
 // --- CONFIGURACIÓN DEL SERVIDOR ---
 const PORT = process.env.PORT || 3000; 
 const app = express();
 
-// CORRECCIÓN CRÍTICA DE CORS: Permitimos todas las peticiones desde cualquier origen ('*')
+// CORRECCIÓN CRÍTICA DE CORS: Permite todas las peticiones desde cualquier origen ('*')
 app.use(cors({
     origin: '*',
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
@@ -72,39 +85,56 @@ app.get('/', (req, res) => {
 });
 
 
-// RUTA 1: Obtener Precios del Libro de Órdenes (bid/ask) - No necesita autenticación
+// RUTA 1: Obtener Precios del Libro de Órdenes (bid/ask) - Lógica universal de conversión
 app.get('/binance/prices', async (req, res) => {
-    let symbols = [];
     try {
         const binance = initializeExchange();
         
         if (!req.query.symbols) {
-            return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols. Formato esperado: ?symbols=["BTCUSDT","ETHUSDT"]' });
+            return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols. Formato esperado: ?symbols=["BTCUSDT","ETHBTC"]' });
         }
         
-        // Carga y valida los mercados una sola vez
-        await loadAndValidateMarkets(binance);
+        // Esperamos a que los mercados carguen si no lo han hecho
+        if (!marketsLoaded) {
+             await loadAndValidateMarkets(binance);
+        }
 
-        // Parseamos la lista de símbolos
         const rawSymbols = JSON.parse(decodeURIComponent(req.query.symbols));
         
-        // Filtramos los símbolos inválidos ANTES de hacer la petición a Binance
         const requestSymbols = [];
+        
+        // PROCESAMIENTO DE SÍMBOLOS
         for (const rawSymbol of rawSymbols) {
-            // El símbolo debe ser convertido de BTCUSDT a BTC/USDT para CCXT
-            const ccxtSymbol = rawSymbol.replace('USDT', '/USDT');
+            let ccxtSymbol = rawSymbol;
+
+            // Buscamos un par base conocido para insertar el '/' (ej. XRPBTC -> XRP/BTC)
+            let foundBase = false;
+            for (const base of BASE_CURRENCIES) {
+                if (rawSymbol.endsWith(base) && rawSymbol.length > base.length) {
+                    const symbol = rawSymbol.substring(0, rawSymbol.length - base.length);
+                    ccxtSymbol = `${symbol}/${base}`;
+                    foundBase = true;
+                    break;
+                }
+            }
+
+            if (!foundBase) {
+                 // Si no encontramos un base conocido, asumimos que no es un par de Binance o ya está en formato CCXT.
+                 console.warn(`Símbolo omitido (base de trading desconocido, no termina en ${BASE_CURRENCIES.join('/')}): ${rawSymbol}`);
+                 continue;
+            }
             
-            // Verificamos si el símbolo es un par válido
+            // Verificamos si el símbolo convertido (ej. XRP/BTC) existe en la lista de Binance
             if (validSymbols.has(ccxtSymbol)) {
                 requestSymbols.push(ccxtSymbol);
             } else {
-                console.warn(`Símbolo omitido (inválido): ${rawSymbol}`);
+                console.warn(`Símbolo omitido (inválido o no listado en Binance): ${rawSymbol} (CCXT: ${ccxtSymbol})`);
             }
         }
 
         if (requestSymbols.length === 0) {
-             // Devolvemos un 200 OK con un warning si no hay símbolos válidos para no romper el frontend
-             return res.status(200).json({ status: "warning", message: "Ninguno de los símbolos solicitados era válido.", prices: {} });
+             // Devolvemos un 200 OK con un warning si no hay símbolos válidos
+             return res.status(200).json({ status: "warning", message: "Ninguno de los símbolos solicitados era válido. Revise el array de su frontend.", prices: {} });
         }
         
         // Hacemos la petición a Binance para los símbolos válidos
@@ -114,7 +144,7 @@ app.get('/binance/prices', async (req, res) => {
         const prices = {};
         tickers.forEach(ticker => {
             if (ticker && ticker.ask && ticker.bid) {
-                // Mapeamos de vuelta de BTC/USDT a BTCUSDT
+                // Mapeamos de vuelta al formato original: BTC/USDT -> BTCUSDT
                 const originalSymbol = ticker.symbol.replace('/', ''); 
                 prices[originalSymbol] = { ask: ticker.ask.toFixed(4), bid: ticker.bid.toFixed(4) };
             }
@@ -123,11 +153,10 @@ app.get('/binance/prices', async (req, res) => {
         res.status(200).json(prices);
 
     } catch (error) {
-        // Manejo de error para asegurar que el frontend reciba algo útil
         console.error("Error en /binance/prices:", error.message);
         res.status(500).json({ 
             status: "error", 
-            message: "Fallo al procesar la solicitud de precios.", 
+            message: "Fallo al procesar la solicitud de precios. Verifique la sintaxis del JSON.", 
             details: error.message 
         });
     }
@@ -139,7 +168,6 @@ app.get('/binance/account', async (req, res) => {
     try {
         const binance = initializeExchange();
 
-        // CRITICAL: Force time sync before the authenticated call
         await binance.fetchTime(true);
 
         const balance = await binance.fetchBalance();
@@ -159,7 +187,6 @@ app.get('/binance/account', async (req, res) => {
         res.status(200).json(accountData);
 
     } catch (error) {
-        // ERROR: FALLO DE AUTENTICACIÓN
         console.error("Error al obtener datos de cuenta de Binance:", error.message);
         res.status(401).json({ 
             status: "error", 

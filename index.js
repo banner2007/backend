@@ -1,13 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 const ccxt = require('ccxt');
+const axios = require('axios'); // Necesario para la ruta /ip
 
 // --- 1. CONFIGURACIÓN DE ACCESO A BINANCE (Lee variables de entorno de Railway) ---
-// Las variables de entorno en Railway deben llamarse BINANCE_API_KEY y BINANCE_API_SECRET.
 const API_KEY = process.env.BINANCE_API_KEY; 
 const API_SECRET = process.env.BINANCE_API_SECRET; 
 
-// Crear instancia del exchange. ccxt detectará automáticamente si las claves son válidas.
 const exchange = new ccxt.binance({
     apiKey: API_KEY,
     secret: API_SECRET,
@@ -22,6 +21,29 @@ app.use(cors());
 app.use(express.json());
 
 
+// --- RUTA NUEVA: Obtener la IP Pública de Salida de Railway ---
+// URL de prueba: https://backend-production-228b.up.railway.app/ip
+app.get('/ip', async (req, res) => {
+    try {
+        // Consultamos un servicio externo para obtener la IP pública
+        const response = await axios.get('https://api.ipify.org?format=json');
+        const ipAddress = response.data.ip;
+        
+        console.log('IP actual de Railway:', ipAddress);
+        
+        res.status(200).json({ ip: ipAddress });
+
+    } catch (error) {
+        console.error("Error al obtener la IP de Railway:", error.message);
+        res.status(500).json({ 
+            status: "error", 
+            message: "Fallo al obtener la IP externa. Revise la conexión de red.", 
+            details: error.message 
+        });
+    }
+});
+
+
 // RUTA BASE: Funciona como chequeo de salud
 app.get('/', (req, res) => {
     res.send('✅ Servidor de Arbitraje en Railway funcionando. Conectado a Binance.');
@@ -34,24 +56,21 @@ app.get('/binance/prices', async (req, res) => {
     let symbols = [];
     try {
         if (req.query.symbols) {
-            // ccxt usa el formato "BTC/USDT", por eso mapeamos el formato del frontend ("BTCUSDT")
             symbols = JSON.parse(decodeURIComponent(req.query.symbols)).map(s => s.replace('USDT', '/USDT'));
         } else {
             return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols.' });
         }
         
-        // Cargar todos los tickers al mismo tiempo (mejor rendimiento)
         const tickerPromises = symbols.map(symbol => exchange.fetchTicker(symbol));
         const tickers = await Promise.all(tickerPromises);
         
         const prices = {};
         tickers.forEach(ticker => {
             if (ticker) {
-                // Mapear de vuelta al formato "BTCUSDT" que espera el frontend
                 const originalSymbol = ticker.symbol.replace('/', ''); 
                 prices[originalSymbol] = { 
-                    ask: ticker.ask.toFixed(4), // Mejor precio de venta
-                    bid: ticker.bid.toFixed(4)  // Mejor precio de compra
+                    ask: ticker.ask.toFixed(4), 
+                    bid: ticker.bid.toFixed(4)
                 };
             }
         });
@@ -60,7 +79,6 @@ app.get('/binance/prices', async (req, res) => {
 
     } catch (error) {
         console.error("Error al obtener precios de Binance:", error.message);
-        // Devolvemos un 500 para diagnosticar problemas de conexión/IP
         res.status(500).json({ 
             status: "error", 
             message: "Fallo al obtener precios. Revise Whitelisting de IP en Binance o el estado del exchange.", 
@@ -74,19 +92,16 @@ app.get('/binance/prices', async (req, res) => {
 // URL de prueba: /binance/account
 app.get('/binance/account', async (req, res) => {
     try {
-        // fetchBalance es una llamada autenticada
         const balance = await exchange.fetchBalance();
         
-        // Simplificar balances para el frontend (solo activos con saldo mayor a cero)
         const simplifiedBalances = Object.keys(balance.total).map(asset => ({
             asset: asset,
             free: balance.free[asset] ? balance.free[asset].toFixed(4) : "0.0000",
             locked: balance.used[asset] ? balance.used[asset].toFixed(4) : "0.0000"
         })).filter(b => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0);
         
-        // Estructura de respuesta para el frontend
         const accountData = {
-            makerCommission: 10, // Tasa de comisión (0.1%) - Simulado, Binance no la da fácilmente
+            makerCommission: 10,
             takerCommission: 10,
             balances: simplifiedBalances
         };
@@ -95,7 +110,6 @@ app.get('/binance/account', async (req, res) => {
 
     } catch (error) {
         console.error("Error al obtener datos de cuenta de Binance:", error.message);
-        // Si hay un error de autenticación (IP, clave incorrecta), devolvemos un 401
         res.status(401).json({ 
             status: "error", 
             message: "Fallo de autenticación o rechazo por IP. ¿Son correctas las claves? ¿Ha deshabilitado la Whitelisting de IP en Binance?", 

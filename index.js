@@ -5,7 +5,7 @@ const axios = require('axios'); // Necesario para la ruta /ip
 
 // --- 1. CONFIGURACIÓN DE ACCESO A BINANCE (Lee variables de entorno de Railway) ---
 const API_KEY = process.env.BINANCE_API_KEY; 
-const API_SECRET = process.env.BINANCE_API_SECRET; 
+const API_SECRET = process.env.BINANCE_SECRET_KEY; 
 
 const exchange = new ccxt.binance({
     apiKey: API_KEY,
@@ -133,3 +133,4 @@ app.use((req, res, next) => {
 app.listen(PORT, () => {
     console.log(`🚀 Servidor Express escuchando en el puerto ${PORT}`);
 });
+

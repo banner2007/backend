@@ -4,20 +4,28 @@ const ccxt = require('ccxt');
 const axios = require('axios'); 
 
 // --- 1. CONFIGURACIÓN DE ACCESO A BINANCE (Lectura de variables de entorno) ---
-// La clave pública
 const API_KEY = process.env.BINANCE_API_KEY; 
-// La clave secreta, usando el nombre corregido: BINANCE_SECRET_KEY
 const API_SECRET = process.env.BINANCE_SECRET_KEY; 
 
-// --- INICIALIZACIÓN DE CCXT ---
-const exchange = new ccxt.binance({
-    apiKey: API_KEY,
-    secret: API_SECRET,
-    // CRÍTICO: Aseguramos que se ajuste la diferencia de tiempo para evitar el error -2015
-    'options': { 
-        'adjustForTimeDifference': true 
+// Inicialización de CCXT
+let exchange;
+let marketsLoaded = false;
+
+// Función para inicializar CCXT de forma segura y perezosa (solo cuando se necesite)
+const initializeExchange = () => {
+    if (!exchange) {
+        exchange = new ccxt.binance({
+            apiKey: API_KEY,
+            secret: API_SECRET,
+            // CRÍTICO: Aseguramos que se ajuste la diferencia de tiempo
+            'options': { 
+                'adjustForTimeDifference': true 
+            }
+        });
+        console.log("CCXT inicializado de forma segura.");
     }
-});
+    return exchange;
+};
 
 // --- CONFIGURACIÓN DEL SERVIDOR ---
 const PORT = process.env.PORT || 3000; 
@@ -26,33 +34,9 @@ app.use(cors());
 app.use(express.json());
 
 
-// --- RUTA DIAGNÓSTICO DE CONFIGURACIÓN ---
-app.get('/config', (req, res) => {
-    // Solo mostramos el primer y último carácter por seguridad
-    const keyStatus = API_KEY ? 
-        `BINANCE_API_KEY leído: ${API_KEY.substring(0, 1)}...${API_KEY.slice(-1)}` : 
-        "ERROR: BINANCE_API_KEY no encontrado.";
-        
-    const secretStatus = API_SECRET ? 
-        `BINANCE_SECRET_KEY leído: ${API_SECRET.substring(0, 1)}...${API_SECRET.slice(-1)}` : 
-        "ERROR: BINANCE_SECRET_KEY no encontrado.";
-        
-    const ccxtConfigured = (API_KEY && API_SECRET);
-    
-    res.status(200).json({
-        status: "DIAGNÓSTICO DE CONFIGURACIÓN",
-        key: keyStatus,
-        secret: secretStatus,
-        ccxtReady: ccxtConfigured,
-        instructions: "Si ambas claves dicen 'leído', el problema es la IP o la caducidad de la clave."
-    });
-});
-
-
 // RUTA IP: Obtener la IP Pública de Salida de Railway
 app.get('/ip', async (req, res) => {
     try {
-        // Consultamos un servicio externo para obtener la IP pública
         const response = await axios.get('https://api.ipify.org?format=json');
         res.status(200).json({ ip: response.data.ip });
     } catch (error) {
@@ -71,18 +55,21 @@ app.get('/', (req, res) => {
 app.get('/binance/prices', async (req, res) => {
     let symbols = [];
     try {
+        const binance = initializeExchange();
+
         if (req.query.symbols) {
             symbols = JSON.parse(decodeURIComponent(req.query.symbols)).map(s => s.replace('USDT', '/USDT'));
         } else {
             return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols.' });
         }
         
-        // Carga los mercados antes de buscar tickers
-        if (exchange.markets === undefined || Object.keys(exchange.markets).length === 0) {
-            await exchange.loadMarkets();
+        // Carga los mercados una sola vez
+        if (!marketsLoaded) {
+            await binance.loadMarkets();
+            marketsLoaded = true;
         }
         
-        const tickerPromises = symbols.map(symbol => exchange.fetchTicker(symbol));
+        const tickerPromises = symbols.map(symbol => binance.fetchTicker(symbol));
         const tickers = await Promise.all(tickerPromises);
         
         const prices = {};
@@ -110,10 +97,12 @@ app.get('/binance/prices', async (req, res) => {
 // RUTA 2: Obtener Saldo de la Cuenta (Requiere Autenticación)
 app.get('/binance/account', async (req, res) => {
     try {
-        // CRÍTICO: Forzamos sincronización de tiempo ANTES de la llamada autenticada
-        await exchange.fetchTime(true);
+        const binance = initializeExchange();
 
-        const balance = await exchange.fetchBalance();
+        // CRÍTICO: Forzamos sincronización de tiempo ANTES de la llamada autenticada
+        await binance.fetchTime(true);
+
+        const balance = await binance.fetchBalance();
         
         const simplifiedBalances = Object.keys(balance.total).map(asset => ({
             asset: asset,

@@ -69,14 +69,12 @@ app.use(express.json());
 
 
 // RUTA IP: Obtener la IP Pública de Salida de Railway
-// Esta ruta es CRUCIAL para que usted pueda ver la IP y colocarla en la Whitelist de Binance.
+// Ruta CRUCIAL para la Whitelist de IP de Binance.
 app.get('/ip', async (req, res) => {
     try {
-        // Usamos un servicio externo para consultar la IP de salida (la que ve Binance)
         const response = await axios.get('https://api.ipify.org?format=json');
         res.status(200).json({ ip: response.data.ip });
     } catch (error) {
-        // Si falla la consulta externa, intentamos dar la IP de la petición si existe
         const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
         res.status(500).json({ 
             status: "error", 
@@ -93,7 +91,7 @@ app.get('/', (req, res) => {
 });
 
 
-// RUTA 1: Obtener Precios del Libro de Órdenes (bid/ask) - Lógica universal de conversión
+// RUTA 1: Obtener Precios del Libro de Órdenes (bid/ask)
 app.get('/binance/prices', async (req, res) => {
     try {
         const binance = initializeExchange();
@@ -102,7 +100,6 @@ app.get('/binance/prices', async (req, res) => {
             return res.status(400).json({ status: "error", message: 'Falta el parámetro symbols. Formato esperado: ?symbols=["BTCUSDT","ETHBTC"]' });
         }
         
-        // Si los mercados aún no han cargado (lo cual es raro después del fix), esperamos.
         if (!marketsLoaded) {
              console.warn("Mercados aún no cargados. Esperando...");
              await loadAndValidateMarkets();
@@ -116,7 +113,6 @@ app.get('/binance/prices', async (req, res) => {
         for (const rawSymbol of rawSymbols) {
             let ccxtSymbol = rawSymbol;
 
-            // Buscamos un par base conocido para insertar el '/' (ej. XRPBTC -> XRP/BTC)
             let foundBase = false;
             for (const base of BASE_CURRENCIES) {
                 if (rawSymbol.endsWith(base) && rawSymbol.length > base.length) {
@@ -132,7 +128,6 @@ app.get('/binance/prices', async (req, res) => {
                  continue;
             }
             
-            // Verificamos si el símbolo convertido (ej. XRP/BTC) existe en la lista de Binance
             if (validSymbols.has(ccxtSymbol)) {
                 requestSymbols.push(ccxtSymbol);
             } else {
@@ -141,18 +136,15 @@ app.get('/binance/prices', async (req, res) => {
         }
 
         if (requestSymbols.length === 0) {
-             // Devolvemos un 200 OK con un warning si no hay símbolos válidos
              return res.status(200).json({ status: "warning", message: "Ninguno de los símbolos solicitados era válido. Revise el array de su frontend.", prices: {} });
         }
         
-        // Hacemos la petición a Binance para los símbolos válidos
         const tickerPromises = requestSymbols.map(symbol => binance.fetchTicker(symbol));
         const tickers = await Promise.all(tickerPromises);
         
         const prices = {};
         tickers.forEach(ticker => {
             if (ticker && ticker.ask && ticker.bid) {
-                // Mapeamos de vuelta al formato original: BTC/USDT -> BTCUSDT
                 const originalSymbol = ticker.symbol.replace('/', ''); 
                 prices[originalSymbol] = { ask: ticker.ask.toFixed(4), bid: ticker.bid.toFixed(4) };
             }
@@ -195,11 +187,89 @@ app.get('/binance/account', async (req, res) => {
         res.status(200).json(accountData);
 
     } catch (error) {
-        // Si el error es 401, suele ser por la clave API o la Whitelist de IP.
         console.error("Error al obtener datos de cuenta de Binance:", error.message);
         res.status(401).json({ 
             status: "error", 
             message: "Fallo de autenticación o rechazo por IP. ¿Son correctas las claves? ¿Ha deshabilitado la Whitelisting de IP en Binance?", 
+            details: error.message 
+        });
+    }
+});
+
+
+// RUTA 3: Colocar una Orden (Requiere Autenticación y datos de orden)
+app.post('/binance/order', async (req, res) => {
+    try {
+        const binance = initializeExchange();
+
+        await binance.fetchTime(true); // Sincroniza tiempo antes de la llamada autenticada
+
+        const { symbol, type, side, amount, price } = req.body;
+
+        if (!symbol || !type || !side || !amount) {
+             return res.status(400).json({ 
+                status: "error", 
+                message: "Faltan parámetros: symbol, type, side, y amount son obligatorios." 
+            });
+        }
+        
+        // 1. Convertir el símbolo de frontend (ej. BTCUSDT) al formato CCXT (ej. BTC/USDT)
+        let ccxtSymbol = symbol;
+        let foundBase = false;
+        for (const base of BASE_CURRENCIES) {
+            if (symbol.endsWith(base) && symbol.length > base.length) {
+                const baseSymbol = symbol.substring(0, symbol.length - base.length);
+                ccxtSymbol = `${baseSymbol}/${base}`;
+                foundBase = true;
+                break;
+            }
+        }
+
+        if (!foundBase) {
+             return res.status(400).json({ 
+                status: "error", 
+                message: "El formato del símbolo es inválido o no soportado (debe terminar en USDT, BTC, ETH, etc.)." 
+            });
+        }
+
+        // 2. Colocar la orden
+        let order;
+        
+        // El precio es opcional para órdenes de mercado ('market')
+        if (type.toLowerCase() === 'limit' && !price) {
+             return res.status(400).json({ 
+                status: "error", 
+                message: "El tipo de orden 'limit' requiere el parámetro 'price'." 
+            });
+        }
+        
+        // ccxt.createOrder(symbol, type, side, amount, price, params)
+        if (type.toLowerCase() === 'market') {
+            // Orden de mercado: no requiere precio
+            order = await binance.createOrder(ccxtSymbol, type, side, amount);
+        } else if (type.toLowerCase() === 'limit') {
+            // Orden limitada: requiere precio
+            order = await binance.createOrder(ccxtSymbol, type, side, amount, price);
+        } else {
+             return res.status(400).json({ 
+                status: "error", 
+                message: "Tipo de orden no válido. Use 'market' o 'limit'." 
+            });
+        }
+
+        // 3. Respuesta exitosa
+        res.status(200).json({ 
+            status: "success", 
+            message: `Orden de ${side} de ${amount} ${ccxtSymbol} colocada exitosamente.`,
+            order: order 
+        });
+
+    } catch (error) {
+        console.error("Error al colocar orden en Binance:", error.message);
+        // CCXT suele devolver errores detallados de la API (ej. saldo insuficiente, precio fuera de banda)
+        res.status(500).json({ 
+            status: "error", 
+            message: "Fallo al ejecutar la orden en Binance. Revise las claves API, la Whitelist de IP y los límites de trading.", 
             details: error.message 
         });
     }

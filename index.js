@@ -178,31 +178,69 @@ const startServer = async () => {
             }
         });
 
-        /* ================= TRADING ================= */
+        /* ================= TRADING (MODIFICADO) ================= */
 
         app.post('/binance/order', async (req, res) => {
+            // Se asume que 'amount' es la cantidad (quantity) enviada desde el frontend
             const { symbol, side, amount, price, type = 'market' } = req.body;
             
             try {
-                const order = type === 'market'
-                    ? await exchange.createMarketOrder(symbol, side, amount)
-                    : await exchange.createLimitOrder(symbol, side, amount, price);
+                // 1. Validación de Parámetros Requeridos
+                if (!symbol || !side || !amount) {
+                    throw new Error("Faltan parámetros requeridos: symbol, side, y amount.");
+                }
+                
+                // 2. Asegurar que amount sea un número válido y positivo
+                const numericAmount = parseFloat(amount);
+                if (isNaN(numericAmount) || numericAmount <= 0) {
+                    throw new Error(`Cantidad inválida: ${amount}. Debe ser un número positivo.`);
+                }
 
+                // 3. Ejecución de la Orden (Lógica original preservada, usando numericAmount)
+                const order = type === 'market'
+                    ? await exchange.createMarketOrder(symbol, side, numericAmount)
+                    : await exchange.createLimitOrder(symbol, side, numericAmount, price);
+
+                // Éxito
                 res.json(order);
+
             } catch (error) {
-                console.error("❌ FALLO AL CREAR ORDEN:", error.message);
-                res.status(500).json({ error: "Fallo al crear la orden", details: error.message });
+                // --- MANEJO DE ERRORES ROBUSTO PARA EVITAR CRASHES ---
+                
+                let status = 500; // Estado por defecto: Error Interno del Servidor
+                let errorMessage = "Error interno del servidor al procesar la orden.";
+                let errorCode = null; // Código de error de Binance/CCXT
+
+                if (error.message) {
+                    errorMessage = error.message;
+                }
+                
+                // Si el error contiene un código de Binance/CCXT, o es un error de validación del cliente
+                // Asumimos que es un error de parámetros o de la lógica del exchange (ej. cantidad/saldo)
+                if (error.code || errorMessage.includes('BINANCE') || errorMessage.includes('Faltan parámetros') || errorMessage.includes('Cantidad inválida')) {
+                    status = 400; // Bad Request: Error del cliente/parámetros/exchange
+                    errorCode = error.code || 'VALIDATION_ERROR';
+                }
+
+                // Loguear el error completo (incluyendo stack trace) para que aparezca en Railway
+                console.error(`❌ FALLO AL CREAR ORDEN (HTTP ${status}, Code ${errorCode || 'N/A'}):`, error);
+
+                // Responder al Frontend con el estado y el JSON de error
+                res.status(status).json({ 
+                    error: errorMessage, 
+                    code: errorCode
+                });
             }
         });
 
         app.post('/binance/cancel-order', async (req, res) => {
              const { orderId, symbol } = req.body;
-            try {
-                const result = await exchange.cancelOrder(orderId, symbol);
-                res.json(result);
-            } catch (error) {
-                 res.status(500).json({ error: "Fallo al cancelar la orden", details: error.message });
-            }
+             try {
+                 const result = await exchange.cancelOrder(orderId, symbol);
+                 res.json(result);
+             } catch (error) {
+                  res.status(500).json({ error: "Fallo al cancelar la orden", details: error.message });
+             }
         });
 
         /* ================= ORDER FLOW (TU RUTA ORIGINAL) ================= */

@@ -1,4 +1,4 @@
-// index.js - Servidor Backend para Railway (EXTENDIDO)
+// index.js - Servidor Backend para Railway (COMPLETAMENTE REVISADO)
 
 const startServer = async () => {
     // Protección para ambientes que no son Node.js
@@ -15,6 +15,12 @@ const startServer = async () => {
         const API_KEY = process.env.BINANCE_API_KEY;
         const API_SECRET = process.env.BINANCE_SECRET_KEY;
         const PORT = process.env.PORT || 3000;
+
+        // Verificar que las claves de API estén presentes
+        if (!API_KEY || !API_SECRET) {
+             console.error("❌ ERROR CRÍTICO: Las variables BINANCE_API_KEY o BINANCE_SECRET_KEY no están definidas.");
+             throw new Error("Faltan credenciales de API.");
+        }
 
         let exchange;
         let marketsLoaded = false;
@@ -35,7 +41,6 @@ const startServer = async () => {
 
         const loadMarkets = async () => {
             if (!marketsLoaded) {
-                // Se usa try/catch aquí para manejar fallos de conexión o API key al cargar mercados
                 try {
                     await exchange.loadMarkets();
                     validSymbols = new Set(Object.keys(exchange.markets));
@@ -43,24 +48,32 @@ const startServer = async () => {
                     console.log(`📦 Mercados cargados: ${validSymbols.size}`);
                 } catch (error) {
                     console.error("❌ ERROR CRÍTICO al cargar mercados:", error.message);
-                    // Si falla, relanzamos el error para que el 'catch' principal lo detenga
+                    // Si falla, relanzamos el error para que el 'catch' principal detenga el proceso
                     throw new Error("Fallo en la carga inicial de mercados o credenciales de Binance.");
                 }
             }
         };
 
         // ===============================================
-        // PUNTO CLAVE CORREGIDO: INICIALIZACIÓN ASÍNCRONA
+        // PUNTO CLAVE: INICIALIZACIÓN ASÍNCRONA ROBUSTA
         // ===============================================
         initExchange();
         
-        // Esperamos la carga de mercados ANTES de iniciar el servidor
-        // para asegurarnos que 'validSymbols' esté listo y que la conexión sea válida.
-        // Si loadMarkets falla, el 'catch' de abajo capturará el error y terminará el proceso.
+        // 1. Esperamos la carga de mercados para asegurar que la conexión sea válida.
         await loadMarkets(); 
+
+        // 2. PRUEBA DE CONECTIVIDAD (Para atrapar errores de API Key/Permisos en el inicio)
+        try {
+            // Usamos fetchBalance para probar que los permisos de trading estén OK (privado)
+            await exchange.fetchBalance();
+            console.log("🟢 Conectividad de Trading y Balance OK.");
+        } catch (e) {
+            console.error("❌ Fallo en la prueba de conectividad de Trading (API Key o permisos):", e.message);
+            throw new Error("Conexión de API fallida. Revisa tus claves y permisos.");
+        }
         
         // ===============================================
-        // CONTINUACIÓN DEL CÓDIGO (Sin cambios en las rutas)
+        // CONTINUACIÓN DEL CÓDIGO (Servidor Express)
         // ===============================================
 
         const app = express();
@@ -72,7 +85,7 @@ const startServer = async () => {
         app.get('/', (_, res) => res.send('✅ Backend Railway OK'));
 
         app.get('/ip', async (_, res) => {
-            try {
+             try {
                 const r = await axios.get('https://api.ipify.org?format=json');
                 res.json(r.data);
             } catch (error) {
@@ -90,9 +103,7 @@ const startServer = async () => {
                 res.status(500).json({ error: "Fallo al obtener tiempo de Binance", details: error.message });
             }
         });
-        
-        // ... (otras rutas públicas sin cambios) ...
-        
+
         app.get('/binance/markets', async (_, res) => {
             await loadMarkets();
             res.json([...validSymbols]);
@@ -130,8 +141,7 @@ const startServer = async () => {
         });
 
         /* ================= BINANCE PRIVADOS ================= */
-        // Se añade try/catch a todas las rutas privadas para capturar errores de API Key
-        
+
         app.get('/binance/balance', async (_, res) => {
             try {
                 const balance = await exchange.fetchBalance();
@@ -169,8 +179,7 @@ const startServer = async () => {
         });
 
         /* ================= TRADING ================= */
-        // Se añade try/catch aquí también, que era la causa del error en el log anterior
-        
+
         app.post('/binance/order', async (req, res) => {
             const { symbol, side, amount, price, type = 'market' } = req.body;
             
@@ -181,7 +190,6 @@ const startServer = async () => {
 
                 res.json(order);
             } catch (error) {
-                // ¡Importante para errores de trading!
                 console.error("❌ FALLO AL CREAR ORDEN:", error.message);
                 res.status(500).json({ error: "Fallo al crear la orden", details: error.message });
             }
@@ -221,7 +229,6 @@ const startServer = async () => {
 
                     const bidQty = ob.bids.reduce((a,b)=>a+b[1],0);
                     const askQty = ob.asks.reduce((a,b)=>a+b[1],0);
-                    // OBI = (Bids - Asks) / (Bids + Asks)
                     const obi = (bidQty - askQty) / (bidQty + askQty);
 
                     results.push({
@@ -234,19 +241,19 @@ const startServer = async () => {
                 }
 
                 res.json(results);
-            } catch (error) { // Se captura el error específico aquí
+            } catch (error) { 
                 console.error("❌ Error en la ruta /orderflow:", error.message);
                 res.status(500).json({ error: "Fallo en el procesamiento de OrderFlow", details: error.message });
             }
         });
         
-        // INICIAMOS EL SERVIDOR SOLAMENTE DESPUÉS DE LA CARGA DE MERCADOS EXITOSA
+        // INICIAMOS EL SERVIDOR SOLAMENTE DESPUÉS DE LA CARGA DE MERCADOS EXITOSA Y LA PRUEBA DE CONEXIÓN
         app.listen(PORT, () =>
             console.log(`🔥 Servidor escuchando en puerto ${PORT}`)
         );
 
     } catch (e) {
-        // Este catch captura el error si loadMarkets falla
+        // Este catch final captura cualquier error fatal de inicialización
         console.error("❌ ERROR FATAL EN EL STARTUP (Servidor detenido):", e.message);
         // Usar process.exit(1) para que Railway sepa que el inicio falló
         process.exit(1); 

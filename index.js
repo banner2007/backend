@@ -89,7 +89,7 @@ const startServer = async () => {
                 const r = await axios.get('https://api.ipify.org?format=json');
                 res.json(r.data);
             } catch (error) {
-                 res.status(500).json({ error: "Fallo al obtener IP externa", details: error.message });
+                res.status(500).json({ error: "Fallo al obtener IP externa", details: error.message });
             }
         });
 
@@ -178,10 +178,12 @@ const startServer = async () => {
             }
         });
 
-        /* ================= TRADING (CORREGIDO) ================= */
+        /* ================= TRADING: Simple (CORREGIDO Y ROBUSTO) ================= */
 
         app.post('/binance/order', async (req, res) => {
-            const { symbol, side, amount, price, type = 'market' } = req.body;
+            const { symbol, side, amount, price } = req.body;
+            // CRÍTICO: Convertimos a minúsculas para manejar 'MARKET' o 'Limit' de forma flexible
+            const type = (req.body.type || 'market').toLowerCase();
             
             try {
                 // 1. Validación de Parámetros Requeridos
@@ -193,11 +195,17 @@ const startServer = async () => {
                 if (isNaN(numericAmount) || numericAmount <= 0) {
                     return res.status(400).json({ error: "Cantidad inválida: Debe ser un número positivo." });
                 }
+                
+                // MEJORA: Si es LIMIT, requiere precio.
+                if (type === 'limit' && (!price || parseFloat(price) <= 0)) {
+                    return res.status(400).json({ error: "Una orden LIMIT requiere un precio válido (price)." });
+                }
 
                 // 2. Ejecución de la Orden
                 const order = type === 'market'
                     ? await exchange.createMarketOrder(symbol, side, numericAmount)
-                    : await exchange.createLimitOrder(symbol, side, numericAmount, price);
+                    // Usamos parseFloat(price) para asegurar que el precio sea numérico si es Limit
+                    : await exchange.createLimitOrder(symbol, side, numericAmount, parseFloat(price));
 
                 res.json(order);
 
@@ -217,7 +225,6 @@ const startServer = async () => {
                     errorCode = error.code || 'BINANCE_VALIDATION_ERROR';
                 }
                 
-                // Loguear el error completo para debug en Railway
                 console.error(`❌ FALLO AL CREAR ORDEN (HTTP ${status}, Code ${errorCode || 'N/A'}):`, error);
 
                 // Responder al Frontend con el estado y el JSON de error
@@ -227,6 +234,78 @@ const startServer = async () => {
                 });
             }
         });
+
+        /* ================= TRADING: OCO (NUEVA RUTA) ================= */
+
+        app.post('/binance/oco-order', async (req, res) => {
+            const { 
+                symbol, 
+                side, 
+                amount, 
+                takeProfitPrice, 
+                stopLossPrice, 
+                stopLimitPrice 
+            } = req.body;
+
+            try {
+                // 1. Validación de Parámetros OCO (todos son necesarios)
+                if (!symbol || !side || !amount || !takeProfitPrice || !stopLossPrice || !stopLimitPrice) {
+                    return res.status(400).json({ error: "Faltan parámetros OCO: symbol, side, amount, takeProfitPrice, stopLossPrice, stopLimitPrice." });
+                }
+                
+                const numericAmount = parseFloat(amount);
+                const numTP = parseFloat(takeProfitPrice);
+                const numSL = parseFloat(stopLossPrice);
+                const numSLimit = parseFloat(stopLimitPrice);
+
+                if (isNaN(numericAmount) || numericAmount <= 0) {
+                    return res.status(400).json({ error: "Cantidad (amount) inválida o no positiva." });
+                }
+                if (isNaN(numTP) || isNaN(numSL) || isNaN(numSLimit) || numTP <= 0 || numSL <= 0 || numSLimit <= 0) {
+                     return res.status(400).json({ error: "Uno o más precios de OCO no son números válidos o positivos." });
+                }
+
+                // 2. Ejecución de la Orden OCO (usando createOrderList que maneja OCO en CCXT)
+
+                const params = {
+                    stopPrice: numSL,        // El precio que activa el Stop Limit (Stop Loss)
+                    stopLimitPrice: numSLimit // El precio de la orden Limit que se crea al activar el Stop
+                };
+
+                const ocoOrder = await exchange.createOrderList(
+                    symbol, 
+                    'OCO', 
+                    side, 
+                    numericAmount, 
+                    numTP, // Este es el precio de la Limit TP (Take Profit)
+                    params
+                );
+
+                res.json(ocoOrder);
+
+            } catch (error) {
+                let status = 500;
+                let errorMessage = "Error interno del servidor al procesar la orden OCO.";
+                let errorCode = null;
+
+                if (error.message) {
+                    errorMessage = error.message;
+                }
+
+                if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('-1102')) {
+                    status = 400; 
+                    errorCode = error.code || 'BINANCE_OCO_VALIDATION_ERROR';
+                }
+
+                console.error(`❌ FALLO AL CREAR ORDEN OCO (HTTP ${status}, Code ${errorCode || 'N/A'}):`, error);
+
+                res.status(status).json({
+                    error: errorMessage,
+                    code: errorCode
+                });
+            }
+        });
+
 
         app.post('/binance/cancel-order', async (req, res) => {
              const { orderId, symbol } = req.body;
@@ -255,24 +334,25 @@ const startServer = async () => {
                 for (const symbol of WATCHLIST) {
                     if (!validSymbols.has(symbol)) continue;
 
-                    const ob = await exchange.fetchOrderBook(symbol, 10);
+                    const ob = await exchange.fetchOrderBook(symbol, 10); 
                     const tk = await exchange.fetchTicker(symbol);
 
                     if (!ob.bids.length || !ob.asks.length) continue;
 
                     const bidQty = ob.bids.reduce((a,b)=>a+b[1],0);
                     const askQty = ob.asks.reduce((a,b)=>a+b[1],0);
+                    
                     const obi = (bidQty - askQty) / (bidQty + askQty);
 
                     results.push({
                         symbol: symbol.replace('/',''),
                         price: tk.last,
-                        bidPressure: 50 + obi * 50,
+                        bidPressure: 50 + obi * 50, 
                         askPressure: 50 - obi * 50,
                         spreadPct: ((ob.asks[0][0]-ob.bids[0][0])/ob.asks[0][0])*100
                     });
                 }
-
+                
                 res.json(results);
             } catch (error) { 
                 console.error("❌ Error en la ruta /orderflow:", error.message);

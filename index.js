@@ -1,4 +1,4 @@
-// index.js - Servidor Backend para Railway (COMPLETAMENTE REVISADO)
+// index.js - Servidor Backend para Railway (COMPLETAMENTE CORREGIDO)
 
 const startServer = async () => {
     // Protección para ambientes que no son Node.js
@@ -178,51 +178,46 @@ const startServer = async () => {
             }
         });
 
-        /* ================= TRADING (MODIFICADO) ================= */
+        /* ================= TRADING (CORREGIDO) ================= */
 
         app.post('/binance/order', async (req, res) => {
-            // Se asume que 'amount' es la cantidad (quantity) enviada desde el frontend
             const { symbol, side, amount, price, type = 'market' } = req.body;
             
             try {
                 // 1. Validación de Parámetros Requeridos
                 if (!symbol || !side || !amount) {
-                    throw new Error("Faltan parámetros requeridos: symbol, side, y amount.");
+                    return res.status(400).json({ error: "Faltan parámetros requeridos: symbol, side, y amount." });
                 }
                 
-                // 2. Asegurar que amount sea un número válido y positivo
                 const numericAmount = parseFloat(amount);
                 if (isNaN(numericAmount) || numericAmount <= 0) {
-                    throw new Error(`Cantidad inválida: ${amount}. Debe ser un número positivo.`);
+                    return res.status(400).json({ error: "Cantidad inválida: Debe ser un número positivo." });
                 }
 
-                // 3. Ejecución de la Orden (Lógica original preservada, usando numericAmount)
+                // 2. Ejecución de la Orden
                 const order = type === 'market'
                     ? await exchange.createMarketOrder(symbol, side, numericAmount)
                     : await exchange.createLimitOrder(symbol, side, numericAmount, price);
 
-                // Éxito
                 res.json(order);
 
             } catch (error) {
                 // --- MANEJO DE ERRORES ROBUSTO PARA EVITAR CRASHES ---
-                
-                let status = 500; // Estado por defecto: Error Interno del Servidor
+                let status = 500; 
                 let errorMessage = "Error interno del servidor al procesar la orden.";
-                let errorCode = null; // Código de error de Binance/CCXT
+                let errorCode = null; 
 
                 if (error.message) {
                     errorMessage = error.message;
                 }
                 
-                // Si el error contiene un código de Binance/CCXT, o es un error de validación del cliente
-                // Asumimos que es un error de parámetros o de la lógica del exchange (ej. cantidad/saldo)
-                if (error.code || errorMessage.includes('BINANCE') || errorMessage.includes('Faltan parámetros') || errorMessage.includes('Cantidad inválida')) {
+                // CCXT/Binance: Errores del cliente (ej. saldo, cantidad, -1102) son Bad Request (400)
+                if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('-1102') || errorMessage.includes('Faltan parámetros') || errorMessage.includes('Cantidad inválida')) {
                     status = 400; // Bad Request: Error del cliente/parámetros/exchange
-                    errorCode = error.code || 'VALIDATION_ERROR';
+                    errorCode = error.code || 'BINANCE_VALIDATION_ERROR';
                 }
-
-                // Loguear el error completo (incluyendo stack trace) para que aparezca en Railway
+                
+                // Loguear el error completo para debug en Railway
                 console.error(`❌ FALLO AL CREAR ORDEN (HTTP ${status}, Code ${errorCode || 'N/A'}):`, error);
 
                 // Responder al Frontend con el estado y el JSON de error

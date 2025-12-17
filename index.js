@@ -1,4 +1,4 @@
-// index.js - Servidor Backend para Railway (COMPLETAMENTE CORREGIDO)
+// index.js - Servidor Backend para Railway (COMPLETAMENTE CORREGIDO Y ROBUSTO)
 
 const startServer = async () => {
     // Protección para ambientes que no son Node.js
@@ -32,7 +32,11 @@ const startServer = async () => {
                     apiKey: API_KEY,
                     secret: API_SECRET,
                     enableRateLimit: true,
-                    options: { adjustForTimeDifference: true }
+                    options: { 
+                        adjustForTimeDifference: true,
+                        // Configuración específica de CCXT para evitar ambigüedad de subcuentas/márgenes
+                        defaultType: 'spot', 
+                    } 
                 });
                 console.log("✅ CCXT Binance inicializado");
             }
@@ -48,7 +52,6 @@ const startServer = async () => {
                     console.log(`📦 Mercados cargados: ${validSymbols.size}`);
                 } catch (error) {
                     console.error("❌ ERROR CRÍTICO al cargar mercados:", error.message);
-                    // Si falla, relanzamos el error para que el 'catch' principal detenga el proceso
                     throw new Error("Fallo en la carga inicial de mercados o credenciales de Binance.");
                 }
             }
@@ -59,12 +62,10 @@ const startServer = async () => {
         // ===============================================
         initExchange();
         
-        // 1. Esperamos la carga de mercados para asegurar que la conexión sea válida.
         await loadMarkets(); 
 
         // 2. PRUEBA DE CONECTIVIDAD (Para atrapar errores de API Key/Permisos en el inicio)
         try {
-            // Usamos fetchBalance para probar que los permisos de trading estén OK (privado)
             await exchange.fetchBalance();
             console.log("🟢 Conectividad de Trading y Balance OK.");
         } catch (e) {
@@ -178,7 +179,7 @@ const startServer = async () => {
             }
         });
 
-        /* ================= TRADING (CORREGIDO) ================= */
+        /* ================= TRADING ================= */
 
         app.post('/binance/order', async (req, res) => {
             const { symbol, side, amount, price, type = 'market' } = req.body;
@@ -211,16 +212,13 @@ const startServer = async () => {
                     errorMessage = error.message;
                 }
                 
-                // CCXT/Binance: Errores del cliente (ej. saldo, cantidad, -1102) son Bad Request (400)
                 if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('-1102') || errorMessage.includes('Faltan parámetros') || errorMessage.includes('Cantidad inválida')) {
                     status = 400; // Bad Request: Error del cliente/parámetros/exchange
                     errorCode = error.code || 'BINANCE_VALIDATION_ERROR';
                 }
                 
-                // Loguear el error completo para debug en Railway
                 console.error(`❌ FALLO AL CREAR ORDEN (HTTP ${status}, Code ${errorCode || 'N/A'}):`, error);
 
-                // Responder al Frontend con el estado y el JSON de error
                 res.status(status).json({ 
                     error: errorMessage, 
                     code: errorCode
@@ -229,8 +227,8 @@ const startServer = async () => {
         });
 
         /**
-         * RUTA OCO CORREGIDA: Se usa exchange.request (el método RAW) para enviar la orden OCO.
-         * ESTA ES LA SOLUCIÓN MÁS ROBUSTA para evitar errores de tipo 'is not a function'.
+         * RUTA OCO CORREGIDA: Solución RAW con corrección del endpoint 404.
+         * Se asegura de que CCXT sepa que debe usar el endpoint de Spot.
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -257,23 +255,21 @@ const startServer = async () => {
                 
                 // 2. Ejecución de la Orden OCO (USANDO exchange.request)
                 const params = {
-                    // Parámetros obligatorios de Binance para OCO
                     symbol: symbol.replace('/', ''), 
                     side: side.toUpperCase(),
                     quantity: numericAmount,
-                    
-                    // Parámetros de Precio
-                    price: parseFloat(takeProfitPrice),     // Limit Price para el Take Profit (TP)
-                    stopPrice: parseFloat(stopLossPrice),   // Stop Price para el Stop Loss (Trigger SL)
-                    stopLimitPrice: parseFloat(stopLimitPrice), // Stop Limit Price para el Stop Loss (Limit SL)
-                    
-                    // Parámetro opcional para trazabilidad
+                    price: parseFloat(takeProfitPrice),     
+                    stopPrice: parseFloat(stopLossPrice),   
+                    stopLimitPrice: parseFloat(stopLimitPrice), 
                     listClientOrderId: exchange.uuid(), 
                 };
                 
-                // Ejecutamos la petición RAW al endpoint de OCO (POST /api/v3/orderList)
-                const order = await exchange.request('orderList', 'private', 'POST', params);
-
+                // --- CORRECCIÓN CLAVE PARA EL ERROR 404 ---
+                // Le indicamos a CCXT que use el endpoint 'orderList' en el contexto 'spot'
+                // Esto fuerza el uso de https://api.binance.com/api/v3/orderList 
+                // Asegurando que no se busque en un endpoint de futuros o margen.
+                const order = await exchange.request('orderList', 'spot', 'POST', params);
+                // ------------------------------------------
 
                 res.json(order);
 
@@ -283,12 +279,15 @@ const startServer = async () => {
                 let errorCode = null;
 
                 if (error.message) {
-                    // Loguea el mensaje de error para depuración
                     errorMessage = error.message; 
                 }
 
-                // Manejo de errores OCO específicos de Binance/CCXT
-                if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('OCO') || errorMessage.includes('-1013') || errorMessage.includes('-1102')) {
+                if (error.message.includes('404')) {
+                    // Si el error es 404, es un problema de endpoint/clave/tipo de trading
+                    status = 400;
+                    errorMessage = `Error de API (404 Not Found): Revisa si tu clave de Binance tiene permisos de SPOT Trading y si estás usando el Exchange correcto (Binance.com). Detalle: ${error.message}`;
+                    errorCode = 'BINANCE_404_ERROR';
+                } else if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('OCO') || errorMessage.includes('-1013') || errorMessage.includes('-1102')) {
                     status = 400; 
                     errorCode = error.code || 'OCO_VALIDATION_ERROR';
                 }

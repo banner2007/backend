@@ -1,4 +1,4 @@
-// index.js - Servidor Backend para Railway (COMPLETAMENTE CORREGIDO Y ROBUSTO)
+// index.js - Servidor Backend para Railway (SOLUCIÓN DEFINITIVA DE URL)
 
 const startServer = async () => {
     // Protección para ambientes que no son Node.js
@@ -35,11 +35,14 @@ const startServer = async () => {
                     options: { 
                         adjustForTimeDifference: true,
                         defaultType: 'spot', 
-                        // -----------------------------------------------------------------
-                        // CORRECCIÓN FINAL: Desactivar explícitamente el modo sandbox (TESTNET)
-                        // Esto garantiza que CCXT use la API de producción, evitando el error 
-                        // de "binance does not have a testnet/sandbox URL..."
                         sandboxMode: false, 
+                        // -----------------------------------------------------------------
+                        // CORRECCIÓN FINAL Y EXTREMA: Forzar la URL de Producción de Spot.
+                        urls: {
+                            api: {
+                                spot: 'https://api.binance.com/api/v3', // URL explícita de la API Spot de Producción
+                            }
+                        }
                         // -----------------------------------------------------------------
                     } 
                 });
@@ -288,10 +291,10 @@ const startServer = async () => {
                     errorMessage = `Error de API (404 Not Found): Asegúrese que su clave de Binance tiene permisos de SPOT Trading y que no está usando Binance US o una subcuenta especial. Detalle: ${error.message}`;
                     errorCode = 'BINANCE_404_ERROR';
                 } else if (error.message.includes('testnet/sandbox')) {
-                    // Mensaje específico para el error de sandbox/testnet que ahora debería estar resuelto.
+                    // Mensaje de error mejorado para el caso de persistencia
                     status = 400;
-                    errorMessage = `Error de API (Sandbox Confusión): Binance está confundiendo sus claves reales con las de prueba. Solución forzada aplicada en el código. Si este error persiste, revise su versión de ccxt y reinicie el servidor. Detalle: ${error.message}`;
-                    errorCode = 'BINANCE_SANDBOX_ERROR';
+                    errorMessage = `ERROR CRÍTICO DE CONFIGURACIÓN DE CCXT: El servidor sigue buscando Testnet. Se ha forzado la URL de Producción. Si este error persiste, puede ser un problema de su versión de CCXT o de la configuración del entorno. Detalle: ${error.message}`;
+                    errorCode = 'BINANCE_CRITICAL_URL_ERROR';
                 } else if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('OCO') || errorMessage.includes('-1013') || errorMessage.includes('-1102')) {
                     status = 400; 
                     errorCode = error.code || 'OCO_VALIDATION_ERROR';

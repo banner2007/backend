@@ -229,9 +229,9 @@ const startServer = async () => {
         });
 
         /**
-         * NUEVA RUTA: Manejo de Órdenes OCO (One-Cancels-the-Other).
-         * CORRECCIÓN CLAVE: Se ha reemplazado privatePostOrderList (el método que falla) 
-         * por el método unificado de CCXT: createOrderList, que es más compatible.
+         * RUTA OCO CORREGIDA: Tanto 'privatePostOrderList' como 'createOrderList' fallaron con 'is not a function'.
+         * USAMOS exchange.request (la función de petición RAW de CCXT) para asegurar la compatibilidad con el endpoint
+         * de Binance POST /api/v3/orderList, que es la única forma de garantizar la ejecución de la OCO.
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -255,24 +255,21 @@ const startServer = async () => {
                 if (isNaN(numericAmount) || numericAmount <= 0) {
                     return res.status(400).json({ error: "Cantidad inválida (amount): Debe ser un número positivo." });
                 }
+                
+                // 2. Ejecución de la Orden OCO (USANDO exchange.request)
+                const params = {
+                    symbol: symbol.replace('/', ''), // Binance API requiere XXXUSDT sin slash
+                    side: side.toUpperCase(),
+                    quantity: numericAmount,
+                    price: parseFloat(takeProfitPrice),     // Limit Price para el Take Profit (TP)
+                    stopPrice: parseFloat(stopLossPrice),   // Stop Price para el Stop Loss (Trigger SL)
+                    stopLimitPrice: parseFloat(stopLimitPrice), // Stop Limit Price para el Stop Loss (Limit SL)
+                    listClientOrderId: exchange.uuid(), 
+                };
+                
+                // Método RAW para POST /api/v3/orderList (OCO)
+                const order = await exchange.request('orderList', 'private', 'POST', params);
 
-                // 2. Ejecución de la Orden OCO utilizando el método unificado de CCXT (Binance OCO = Limit + Stop Limit)
-                const order = await exchange.createOrderList(symbol, side, [
-                    // Primera Orden: Take Profit (Limit Order)
-                    { 
-                        type: 'limit', 
-                        price: parseFloat(takeProfitPrice), 
-                        amount: numericAmount,
-                        params: { listClientOrderId: exchange.uuid() } // Opcional, pero bueno para trazabilidad
-                    },
-                    // Segunda Orden: Stop Loss (Stop Limit Order)
-                    { 
-                        type: 'stop_loss_limit', 
-                        price: parseFloat(stopLimitPrice), 
-                        stopPrice: parseFloat(stopLossPrice), 
-                        amount: numericAmount
-                    }
-                ]);
 
                 res.json(order);
 

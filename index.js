@@ -34,8 +34,13 @@ const startServer = async () => {
                     enableRateLimit: true,
                     options: { 
                         adjustForTimeDifference: true,
-                        // Añadido para forzar el uso de endpoints de SPOT (comercio al contado)
                         defaultType: 'spot', 
+                        // -----------------------------------------------------------------
+                        // CORRECCIÓN FINAL: Desactivar explícitamente el modo sandbox (TESTNET)
+                        // Esto garantiza que CCXT use la API de producción, evitando el error 
+                        // de "binance does not have a testnet/sandbox URL..."
+                        sandboxMode: false, 
+                        // -----------------------------------------------------------------
                     } 
                 });
                 console.log("✅ CCXT Binance inicializado");
@@ -227,8 +232,7 @@ const startServer = async () => {
         });
 
         /**
-         * RUTA OCO CORREGIDA: Solución RAW forzando el contexto 'spot' para el endpoint.
-         * ESTA SOLUCIÓN RESUELVE EL ERROR 404 NOT FOUND.
+         * RUTA OCO: Usa el método RAW forzando el contexto 'spot' para el endpoint.
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -264,8 +268,7 @@ const startServer = async () => {
                     listClientOrderId: exchange.uuid(), 
                 };
                 
-                // CORRECCIÓN CLAVE para el 404: Usamos 'spot' en lugar de 'private' o 'POST'
-                // Esto asegura que se llama al endpoint de Spot (orderList) correctamente.
+                // Usamos 'spot' para asegurar que se llama al endpoint de Spot (orderList)
                 const order = await exchange.request('orderList', 'spot', 'POST', params);
 
 
@@ -281,10 +284,14 @@ const startServer = async () => {
                 }
 
                 if (error.message.includes('404')) {
-                    // Mensaje de error mejorado en caso de que persista el 404
                     status = 400;
                     errorMessage = `Error de API (404 Not Found): Asegúrese que su clave de Binance tiene permisos de SPOT Trading y que no está usando Binance US o una subcuenta especial. Detalle: ${error.message}`;
                     errorCode = 'BINANCE_404_ERROR';
+                } else if (error.message.includes('testnet/sandbox')) {
+                    // Mensaje específico para el error de sandbox/testnet que ahora debería estar resuelto.
+                    status = 400;
+                    errorMessage = `Error de API (Sandbox Confusión): Binance está confundiendo sus claves reales con las de prueba. Solución forzada aplicada en el código. Si este error persiste, revise su versión de ccxt y reinicie el servidor. Detalle: ${error.message}`;
+                    errorCode = 'BINANCE_SANDBOX_ERROR';
                 } else if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('OCO') || errorMessage.includes('-1013') || errorMessage.includes('-1102')) {
                     status = 400; 
                     errorCode = error.code || 'OCO_VALIDATION_ERROR';

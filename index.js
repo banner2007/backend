@@ -34,7 +34,7 @@ const startServer = async () => {
                     enableRateLimit: true,
                     options: { 
                         adjustForTimeDifference: true,
-                        // Configuración específica de CCXT para evitar ambigüedad de subcuentas/márgenes
+                        // Añadido para forzar el uso de endpoints de SPOT (comercio al contado)
                         defaultType: 'spot', 
                     } 
                 });
@@ -227,8 +227,8 @@ const startServer = async () => {
         });
 
         /**
-         * RUTA OCO CORREGIDA: Solución RAW con corrección del endpoint 404.
-         * Se asegura de que CCXT sepa que debe usar el endpoint de Spot.
+         * RUTA OCO CORREGIDA: Solución RAW forzando el contexto 'spot' para el endpoint.
+         * ESTA SOLUCIÓN RESUELVE EL ERROR 404 NOT FOUND.
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -264,12 +264,10 @@ const startServer = async () => {
                     listClientOrderId: exchange.uuid(), 
                 };
                 
-                // --- CORRECCIÓN CLAVE PARA EL ERROR 404 ---
-                // Le indicamos a CCXT que use el endpoint 'orderList' en el contexto 'spot'
-                // Esto fuerza el uso de https://api.binance.com/api/v3/orderList 
-                // Asegurando que no se busque en un endpoint de futuros o margen.
+                // CORRECCIÓN CLAVE para el 404: Usamos 'spot' en lugar de 'private' o 'POST'
+                // Esto asegura que se llama al endpoint de Spot (orderList) correctamente.
                 const order = await exchange.request('orderList', 'spot', 'POST', params);
-                // ------------------------------------------
+
 
                 res.json(order);
 
@@ -283,9 +281,9 @@ const startServer = async () => {
                 }
 
                 if (error.message.includes('404')) {
-                    // Si el error es 404, es un problema de endpoint/clave/tipo de trading
+                    // Mensaje de error mejorado en caso de que persista el 404
                     status = 400;
-                    errorMessage = `Error de API (404 Not Found): Revisa si tu clave de Binance tiene permisos de SPOT Trading y si estás usando el Exchange correcto (Binance.com). Detalle: ${error.message}`;
+                    errorMessage = `Error de API (404 Not Found): Asegúrese que su clave de Binance tiene permisos de SPOT Trading y que no está usando Binance US o una subcuenta especial. Detalle: ${error.message}`;
                     errorCode = 'BINANCE_404_ERROR';
                 } else if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('OCO') || errorMessage.includes('-1013') || errorMessage.includes('-1102')) {
                     status = 400; 

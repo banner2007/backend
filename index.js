@@ -230,8 +230,8 @@ const startServer = async () => {
 
         /**
          * NUEVA RUTA: Manejo de Órdenes OCO (One-Cancels-the-Other).
-         * Utiliza privatePostOrderList para mayor robustez en Binance Spot, 
-         * eludiendo el error de 'createOrderList is not a function'.
+         * CORRECCIÓN CLAVE: Se ha reemplazado privatePostOrderList (el método que falla) 
+         * por el método unificado de CCXT: createOrderList, que es más compatible.
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -256,19 +256,23 @@ const startServer = async () => {
                     return res.status(400).json({ error: "Cantidad inválida (amount): Debe ser un número positivo." });
                 }
 
-                // 2. Ejecución de la Orden OCO
-                // Usamos el método de API crudo de Binance a través de CCXT para máxima compatibilidad OCO
-                const order = await exchange.privatePostOrderList({
-                    symbol: symbol.replace('/', ''), // Binance API requiere XXXUSDT sin slash
-                    side: side.toUpperCase(),
-                    quantity: numericAmount,
-                    // Parámetros específicos de OCO en Binance
-                    price: parseFloat(takeProfitPrice),     // Limit Price para el Take Profit (TP)
-                    stopPrice: parseFloat(stopLossPrice),   // Stop Price para el Stop Loss (Trigger SL)
-                    stopLimitPrice: parseFloat(stopLimitPrice), // Stop Limit Price para el Stop Loss (Limit SL)
-                    // Parámetros opcionales recomendados por CCXT para OCO:
-                    listClientOrderId: exchange.uuid(), 
-                });
+                // 2. Ejecución de la Orden OCO utilizando el método unificado de CCXT (Binance OCO = Limit + Stop Limit)
+                const order = await exchange.createOrderList(symbol, side, [
+                    // Primera Orden: Take Profit (Limit Order)
+                    { 
+                        type: 'limit', 
+                        price: parseFloat(takeProfitPrice), 
+                        amount: numericAmount,
+                        params: { listClientOrderId: exchange.uuid() } // Opcional, pero bueno para trazabilidad
+                    },
+                    // Segunda Orden: Stop Loss (Stop Limit Order)
+                    { 
+                        type: 'stop_loss_limit', 
+                        price: parseFloat(stopLimitPrice), 
+                        stopPrice: parseFloat(stopLossPrice), 
+                        amount: numericAmount
+                    }
+                ]);
 
                 res.json(order);
 
@@ -278,7 +282,8 @@ const startServer = async () => {
                 let errorCode = null;
 
                 if (error.message) {
-                    errorMessage = error.message;
+                    // Loguea el mensaje de error para depuración
+                    errorMessage = error.message; 
                 }
 
                 // Manejo de errores OCO específicos de Binance/CCXT
@@ -308,7 +313,6 @@ const startServer = async () => {
         });
 
         /* ================= ORDER FLOW (TU RUTA ORIGINAL) ================= */
-        // ... (El resto de la ruta /orderflow es el mismo) ...
 
         app.get('/orderflow', async (_, res) => {
             try {

@@ -36,14 +36,12 @@ const startServer = async () => {
                         adjustForTimeDifference: true,
                         defaultType: 'spot', 
                         sandboxMode: false, 
-                        // -----------------------------------------------------------------
-                        // CORRECCIÓN FINAL Y EXTREMA: Forzar la URL de Producción de Spot.
+                        // Forzamos URL de Producción
                         urls: {
                             api: {
-                                spot: 'https://api.binance.com/api/v3', // URL explícita de la API Spot de Producción
+                                spot: 'https://api.binance.com/api/v3', 
                             }
                         }
-                        // -----------------------------------------------------------------
                     } 
                 });
                 console.log("✅ CCXT Binance inicializado");
@@ -65,26 +63,19 @@ const startServer = async () => {
             }
         };
 
-        // ===============================================
-        // PUNTO CLAVE: INICIALIZACIÓN ASÍNCRONA ROBUSTA
-        // ===============================================
+        // Inicialización
         initExchange();
-        
         await loadMarkets(); 
 
-        // 2. PRUEBA DE CONECTIVIDAD (Para atrapar errores de API Key/Permisos en el inicio)
+        // Prueba de conectividad
         try {
             await exchange.fetchBalance();
             console.log("🟢 Conectividad de Trading y Balance OK.");
         } catch (e) {
-            console.error("❌ Fallo en la prueba de conectividad de Trading (API Key o permisos):", e.message);
-            throw new Error("Conexión de API fallida. Revisa tus claves y permisos.");
+            console.error("❌ Fallo en la prueba de conectividad de Trading:", e.message);
+            throw new Error("Conexión de API fallida.");
         }
         
-        // ===============================================
-        // CONTINUACIÓN DEL CÓDIGO (Servidor Express)
-        // ===============================================
-
         const app = express();
         app.use(cors({ origin: '*' }));
         app.use(express.json());
@@ -193,17 +184,11 @@ const startServer = async () => {
             const { symbol, side, amount, price, type = 'market' } = req.body;
             
             try {
-                // 1. Validación de Parámetros Requeridos
                 if (!symbol || !side || !amount) {
-                    return res.status(400).json({ error: "Faltan parámetros requeridos: symbol, side, y amount." });
+                    return res.status(400).json({ error: "Faltan parámetros requeridos." });
                 }
                 
                 const numericAmount = parseFloat(amount);
-                if (isNaN(numericAmount) || numericAmount <= 0) {
-                    return res.status(400).json({ error: "Cantidad inválida: Debe ser un número positivo." });
-                }
-
-                // 2. Ejecución de la Orden
                 const order = type === 'market'
                     ? await exchange.createMarketOrder(symbol, side, numericAmount)
                     : await exchange.createLimitOrder(symbol, side, numericAmount, price);
@@ -211,31 +196,13 @@ const startServer = async () => {
                 res.json(order);
 
             } catch (error) {
-                // --- MANEJO DE ERRORES ROBUSTO PARA EVITAR CRASHES ---
-                let status = 500; 
-                let errorMessage = "Error interno del servidor al procesar la orden.";
-                let errorCode = null; 
-
-                if (error.message) {
-                    errorMessage = error.message;
-                }
-                
-                if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('-1102') || errorMessage.includes('Faltan parámetros') || errorMessage.includes('Cantidad inválida')) {
-                    status = 400; // Bad Request: Error del cliente/parámetros/exchange
-                    errorCode = error.code || 'BINANCE_VALIDATION_ERROR';
-                }
-                
-                console.error(`❌ FALLO AL CREAR ORDEN (HTTP ${status}, Code ${errorCode || 'N/A'}):`, error);
-
-                res.status(status).json({ 
-                    error: errorMessage, 
-                    code: errorCode
-                });
+                console.error(`❌ FALLO AL CREAR ORDEN:`, error);
+                res.status(500).json({ error: error.message });
             }
         });
 
         /**
-         * RUTA OCO: Usa el método RAW forzando el contexto 'spot' para el endpoint.
+         * RUTA OCO: CORREGIDA USANDO MÉTODO NATIVO DE CCXT
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -248,67 +215,38 @@ const startServer = async () => {
             } = req.body;
             
             try {
-                // 1. Validación de Parámetros OCO Requeridos
                 if (!symbol || !side || !amount || !takeProfitPrice || !stopLossPrice || !stopLimitPrice) {
                     return res.status(400).json({ 
-                        error: "Faltan parámetros OCO requeridos: symbol, side, amount, takeProfitPrice, stopLossPrice, stopLimitPrice." 
+                        error: "Faltan parámetros OCO requeridos." 
                     });
                 }
                 
-                const numericAmount = parseFloat(amount);
-                if (isNaN(numericAmount) || numericAmount <= 0) {
-                    return res.status(400).json({ error: "Cantidad inválida (amount): Debe ser un número positivo." });
-                }
-                
-                // 2. Ejecución de la Orden OCO (USANDO exchange.request)
-                const params = {
-                    symbol: symbol.replace('/', ''), 
-                    side: side.toUpperCase(),
-                    quantity: numericAmount,
-                    price: parseFloat(takeProfitPrice),     
-                    stopPrice: parseFloat(stopLossPrice),   
-                    stopLimitPrice: parseFloat(stopLimitPrice), 
-                    listClientOrderId: exchange.uuid(), 
-                };
-                
-                // Usamos 'spot' para asegurar que se llama al endpoint de Spot (orderList)
-                const order = await exchange.request('orderList', 'spot', 'POST', params);
+                // Usamos createOrder con tipo 'OCO' (Método Nativo)
+                // Esto soluciona definitivamente el error de 404 y Sandbox
+                const order = await exchange.createOrder(
+                    symbol, 
+                    'OCO', 
+                    side.toUpperCase(), 
+                    parseFloat(amount), 
+                    parseFloat(takeProfitPrice), 
+                    {
+                        'stopPrice': parseFloat(stopLossPrice),
+                        'stopLimitPrice': parseFloat(stopLimitPrice),
+                        'listClientOrderId': exchange.uuid()
+                    }
+                );
 
-
+                console.log("✅ OCO Creada con éxito (Método Nativo)");
                 res.json(order);
 
             } catch (error) {
-                let status = 500; 
-                let errorMessage = "Error OCO: Fallo al crear la Order List.";
-                let errorCode = null;
-
-                if (error.message) {
-                    errorMessage = error.message; 
-                }
-
-                if (error.message.includes('404')) {
-                    status = 400;
-                    errorMessage = `Error de API (404 Not Found): Asegúrese que su clave de Binance tiene permisos de SPOT Trading y que no está usando Binance US o una subcuenta especial. Detalle: ${error.message}`;
-                    errorCode = 'BINANCE_404_ERROR';
-                } else if (error.message.includes('testnet/sandbox')) {
-                    // Mensaje de error mejorado para el caso de persistencia
-                    status = 400;
-                    errorMessage = `ERROR CRÍTICO DE CONFIGURACIÓN DE CCXT: El servidor sigue buscando Testnet. Se ha forzado la URL de Producción. Si este error persiste, puede ser un problema de su versión de CCXT o de la configuración del entorno. Detalle: ${error.message}`;
-                    errorCode = 'BINANCE_CRITICAL_URL_ERROR';
-                } else if (error.name === 'InvalidOrder' || errorMessage.includes('BINANCE') || errorMessage.includes('OCO') || errorMessage.includes('-1013') || errorMessage.includes('-1102')) {
-                    status = 400; 
-                    errorCode = error.code || 'OCO_VALIDATION_ERROR';
-                }
-                
-                console.error(`❌ FALLO AL CREAR ORDEN OCO (HTTP ${status}):`, error);
-
-                res.status(status).json({ 
-                    error: errorMessage, 
-                    code: errorCode
+                console.error(`❌ FALLO OCO NATIVO:`, error.message);
+                res.status(500).json({ 
+                    error: error.message, 
+                    code: 'OCO_NATIVE_ERROR'
                 });
             }
         });
-
 
         app.post('/binance/cancel-order', async (req, res) => {
              const { orderId, symbol } = req.body;
@@ -320,7 +258,7 @@ const startServer = async () => {
              }
         });
 
-        /* ================= ORDER FLOW (TU RUTA ORIGINAL) ================= */
+        /* ================= ORDER FLOW ================= */
 
         app.get('/orderflow', async (_, res) => {
             try {
@@ -362,15 +300,12 @@ const startServer = async () => {
             }
         });
         
-        // INICIAMOS EL SERVIDOR SOLAMENTE DESPUÉS DE LA CARGA DE MERCADOS EXITOSA Y LA PRUEBA DE CONEXIÓN
         app.listen(PORT, () =>
             console.log(`🔥 Servidor escuchando en puerto ${PORT}`)
         );
 
     } catch (e) {
-        // Este catch final captura cualquier error fatal de inicialización
-        console.error("❌ ERROR FATAL EN EL STARTUP (Servidor detenido):", e.message);
-        // Usar process.exit(1) para que Railway sepa que el inicio falló
+        console.error("❌ ERROR FATAL EN EL STARTUP:", e.message);
         process.exit(1); 
     }
 };

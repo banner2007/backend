@@ -229,9 +229,8 @@ const startServer = async () => {
         });
 
         /**
-         * RUTA OCO CORREGIDA: Tanto 'privatePostOrderList' como 'createOrderList' fallaron con 'is not a function'.
-         * USAMOS exchange.request (la función de petición RAW de CCXT) para asegurar la compatibilidad con el endpoint
-         * de Binance POST /api/v3/orderList, que es la única forma de garantizar la ejecución de la OCO.
+         * RUTA OCO CORREGIDA: Se usa exchange.request (el método RAW) para enviar la orden OCO.
+         * ESTA ES LA SOLUCIÓN MÁS ROBUSTA para evitar errores de tipo 'is not a function'.
          */
         app.post('/binance/oco-order', async (req, res) => {
             const { 
@@ -258,16 +257,21 @@ const startServer = async () => {
                 
                 // 2. Ejecución de la Orden OCO (USANDO exchange.request)
                 const params = {
-                    symbol: symbol.replace('/', ''), // Binance API requiere XXXUSDT sin slash
+                    // Parámetros obligatorios de Binance para OCO
+                    symbol: symbol.replace('/', ''), 
                     side: side.toUpperCase(),
                     quantity: numericAmount,
+                    
+                    // Parámetros de Precio
                     price: parseFloat(takeProfitPrice),     // Limit Price para el Take Profit (TP)
                     stopPrice: parseFloat(stopLossPrice),   // Stop Price para el Stop Loss (Trigger SL)
                     stopLimitPrice: parseFloat(stopLimitPrice), // Stop Limit Price para el Stop Loss (Limit SL)
+                    
+                    // Parámetro opcional para trazabilidad
                     listClientOrderId: exchange.uuid(), 
                 };
                 
-                // Método RAW para POST /api/v3/orderList (OCO)
+                // Ejecutamos la petición RAW al endpoint de OCO (POST /api/v3/orderList)
                 const order = await exchange.request('orderList', 'private', 'POST', params);
 
 
